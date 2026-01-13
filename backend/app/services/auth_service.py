@@ -122,6 +122,20 @@ class AuthService:
             return None
         return self._users.get(user_id)
     
+    def validate_token(self, token: str) -> Optional[User]:
+        """
+        Validate a token (session ID) and return the associated user.
+        
+        This is an alias for get_user_by_session for API compatibility.
+        
+        Args:
+            token: The session token to validate
+            
+        Returns:
+            User if token is valid, None otherwise
+        """
+        return self.get_user_by_session(token)
+    
     def get_user_by_id(self, user_id: str) -> Optional[User]:
         """Get user by ID."""
         return self._users.get(user_id)
