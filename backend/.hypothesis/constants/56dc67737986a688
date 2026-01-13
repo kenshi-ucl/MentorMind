@@ -1,0 +1,4 @@
+# file: C:\KiroProject\backend\app\services\progress_service.py
+# hypothesis_version: 6.150.1
+
+[0.0, 50.0, 80.0, 100, 'in_progress', 'mastered', 'needs_work']

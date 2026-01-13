@@ -1,0 +1,4 @@
+# file: C:\KiroProject\backend\app\models\quiz.py
+# hypothesis_version: 6.150.1
+
+[0.0, 'Quiz', 'QuizQuestion', 'QuizResult', 'answers', 'completedAt', 'contentId', 'content_id', 'correctCount', 'correctIndex', 'correct_count', 'correct_index', 'createdAt', 'explanation', 'id', 'options', 'question', 'questions', 'quizId', 'quiz_id', 'score', 'topic', 'totalQuestions', 'total_questions', 'userId', 'user_id']

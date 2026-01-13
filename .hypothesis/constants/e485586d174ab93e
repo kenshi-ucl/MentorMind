@@ -1,0 +1,4 @@
+# file: C:\KiroProject\backend\app\models\progress.py
+# hypothesis_version: 6.150.1
+
+[0.0, 50.0, 80.0, 100, 'attempts', 'correct', 'correctAnswers', 'date', 'masteryLevel', 'progressOverTime', 'quizId', 'score', 'successRate', 'topic', 'topicsAttempted', 'topicsMastered', 'topicsNeedingWork', 'totalQuestions', 'totalQuizzes', 'userId']

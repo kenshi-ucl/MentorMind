@@ -1,0 +1,4 @@
+# file: C:\KiroProject\backend\app\models\content.py
+# hypothesis_version: 6.150.1
+
+['.', '.avi', '.mkv', '.mov', '.mp4', '.pdf', '.webm', 'Content', 'created_at', 'file_path', 'file_type', 'filename', 'id', 'key_points', 'pdf', 'processed_at', 'summary', 'user_id', 'video']
