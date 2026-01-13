@@ -1,0 +1,4 @@
+# file: C:\KiroProject\backend\app\models\agent_prompt.py
+# hypothesis_version: 6.150.1
+
+['AgentPrompt', 'context_guidance', 'description', 'example_format', 'name', 'role', 'system_prompt']
