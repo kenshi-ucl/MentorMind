@@ -22,6 +22,10 @@ api_bp.register_blueprint(quiz_bp, url_prefix='/quiz')
 from app.routes.progress import progress_bp
 api_bp.register_blueprint(progress_bp, url_prefix='/progress')
 
+# Register seed routes for demo data
+from app.routes.seed import seed_bp
+api_bp.register_blueprint(seed_bp)
+
 
 @api_bp.route('/health', methods=['GET'])
 def health_check():

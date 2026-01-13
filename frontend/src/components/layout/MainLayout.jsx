@@ -1,8 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { ChatInterface } from '../chat/ChatInterface'
 import { ProgressDashboard } from '../progress/ProgressDashboard'
+import { QuizComponent } from '../quiz/QuizComponent'
+import { ContentUploader } from '../content/ContentUploader'
+import { DashboardView } from '../pages/DashboardView'
+import { SettingsView } from '../pages/SettingsView'
+import { PracticeView } from '../pages/PracticeView'
+import { LessonsView } from '../pages/LessonsView'
 
 export function MainLayout({ children }) {
   const [currentPath, setCurrentPath] = useState('/dashboard')
@@ -15,18 +21,9 @@ export function MainLayout({ children }) {
   const renderContent = () => {
     switch (currentPath) {
       case '/lessons':
-        return <ChatInterface />;
+        return <LessonsView />;
       case '/practice':
-        return (
-          <div className="flex flex-col items-center justify-center h-full">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-              Practice
-            </h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Quiz and practice features coming soon.
-            </p>
-          </div>
-        );
+        return <PracticeView />;
       case '/progress':
         return (
           <div className="p-6 overflow-auto h-full">
@@ -34,28 +31,10 @@ export function MainLayout({ children }) {
           </div>
         );
       case '/settings':
-        return (
-          <div className="flex flex-col items-center justify-center h-full">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-              Settings
-            </h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Settings page coming soon.
-            </p>
-          </div>
-        );
+        return <SettingsView />;
       case '/dashboard':
       default:
-        return children || (
-          <div className="flex flex-col items-center justify-center h-full">
-            <h2 className="text-3xl font-bold text-indigo-600 dark:text-indigo-400 mb-4">
-              Welcome to MentorMind
-            </h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Your Personal AI Tutor — Learn Smarter
-            </p>
-          </div>
-        );
+        return children || <DashboardView onNavigate={handleNavigate} />;
     }
   };
 
