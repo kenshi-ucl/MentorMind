@@ -160,3 +160,255 @@ class TestModelConfigProperties:
         assert output_dict["temperature"] == temperature
         assert output_dict["max_tokens"] == max_tokens
         assert output_dict["top_p"] == top_p
+
+
+
+from app.services.retry_handler import (
+    RetryHandler,
+    AIErrorResponse,
+    TimeoutError,
+    RateLimitError,
+    ServerError,
+    ClientError,
+    AuthenticationError
+)
+
+
+class TestRetryHandlerProperties:
+    """Property-based tests for RetryHandler."""
+    
+    @settings(max_examples=100, deadline=None)
+    @given(
+        max_attempts=st.integers(min_value=1, max_value=10),
+        timeout_count=st.integers(min_value=0, max_value=5)
+    )
+    def test_property_9_retry_on_timeout(self, max_attempts, timeout_count):
+        """
+        Property 9: Retry on Timeout
+        
+        For any API call that times out, the RetryHandler SHALL retry up to the
+        configured maximum attempts (default 3) with exponential backoff before
+        returning an error.
+        
+        **Validates: Requirements 5.1**
+        """
+        # Track how many times the function was called
+        call_count = 0
+        
+        def mock_api_call():
+            nonlocal call_count
+            call_count += 1
+            
+            # Fail with timeout for the first `timeout_count` calls
+            if call_count <= timeout_count:
+                raise TimeoutError(f"Request timed out (attempt {call_count})")
+            
+            # Succeed after timeout_count failures
+            return "success"
+        
+        handler = RetryHandler(
+            max_attempts=max_attempts,
+            base_delay=0.001,  # Very short delay for testing
+            max_delay=0.01
+        )
+        
+        if timeout_count < max_attempts:
+            # Should eventually succeed
+            result = handler.execute(mock_api_call)
+            assert result == "success", "Should return success after retries"
+            assert call_count == timeout_count + 1, \
+                f"Should have called function {timeout_count + 1} times, got {call_count}"
+        else:
+            # Should exhaust all retries and raise
+            with pytest.raises(TimeoutError):
+                handler.execute(mock_api_call)
+            
+            assert call_count == max_attempts, \
+                f"Should have called function exactly {max_attempts} times, got {call_count}"
+    
+    @settings(max_examples=100, deadline=None)
+    @given(
+        max_attempts=st.integers(min_value=1, max_value=5),
+        base_delay=st.floats(min_value=0.001, max_value=0.1, allow_nan=False),
+        attempt=st.integers(min_value=0, max_value=10)
+    )
+    def test_exponential_backoff_calculation(self, max_attempts, base_delay, attempt):
+        """
+        Test that exponential backoff delay increases correctly.
+        
+        For any attempt number, the delay should follow exponential backoff
+        formula: base_delay * (2 ^ attempt), capped at max_delay.
+        """
+        max_delay = base_delay * 100  # Ensure max_delay > base_delay
+        
+        handler = RetryHandler(
+            max_attempts=max_attempts,
+            base_delay=base_delay,
+            max_delay=max_delay
+        )
+        
+        delay = handler.calculate_delay(attempt)
+        
+        # Expected delay with exponential backoff
+        expected = min(base_delay * (2 ** attempt), max_delay)
+        
+        assert abs(delay - expected) < 0.0001, \
+            f"Delay should be {expected}, got {delay}"
+        
+        # Delay should never exceed max_delay
+        assert delay <= max_delay, \
+            f"Delay {delay} should not exceed max_delay {max_delay}"
+        
+        # Delay should be at least base_delay for attempt 0
+        if attempt == 0:
+            assert delay >= base_delay, \
+                f"Initial delay should be at least base_delay {base_delay}"
+    
+    @settings(max_examples=100, deadline=None)
+    @given(retry_after=st.integers(min_value=1, max_value=60))
+    def test_retry_after_respected(self, retry_after):
+        """
+        Test that server-specified retry-after is respected.
+        
+        When a rate limit error includes retry-after, the handler should
+        use that value (capped at max_delay).
+        """
+        max_delay = 30.0
+        
+        handler = RetryHandler(
+            max_attempts=3,
+            base_delay=1.0,
+            max_delay=max_delay
+        )
+        
+        delay = handler.calculate_delay(attempt=0, retry_after=retry_after)
+        
+        expected = min(float(retry_after), max_delay)
+        
+        assert abs(delay - expected) < 0.0001, \
+            f"Delay should respect retry_after: expected {expected}, got {delay}"
+
+
+
+class TestAIErrorResponseProperties:
+    """Property-based tests for AIErrorResponse."""
+    
+    @settings(max_examples=100, deadline=None)
+    @given(
+        error_message=st.text(min_size=1, max_size=200).filter(lambda x: x.strip()),
+        retry_after=st.one_of(st.none(), st.integers(min_value=1, max_value=300))
+    )
+    def test_property_4_api_error_graceful_handling(self, error_message, retry_after):
+        """
+        Property 4: API Error Graceful Handling
+        
+        For any API failure (timeout, rate limit, server error), the system SHALL
+        return a user-friendly error message without exposing internal details or crashing.
+        
+        **Validates: Requirements 2.4, 5.4, 5.5**
+        """
+        # Test with different error types
+        error_types = [
+            TimeoutError(error_message, retry_after),
+            RateLimitError(error_message, retry_after),
+            ServerError(error_message, retry_after),
+            ClientError(error_message, status_code=400),
+            AuthenticationError(error_message),
+            ConnectionError(error_message),
+            Exception(error_message)  # Generic exception
+        ]
+        
+        for error in error_types:
+            response = AIErrorResponse.from_exception(error)
+            
+            # Property 1: Response should always have success=False
+            assert response.success is False, \
+                f"Error response should have success=False for {type(error).__name__}"
+            
+            # Property 2: User message should not contain technical details
+            assert error_message not in response.user_message or len(error_message) < 10, \
+                f"User message should not expose raw error message for {type(error).__name__}"
+            
+            # Property 3: User message should be non-empty and user-friendly
+            assert len(response.user_message) > 0, \
+                f"User message should not be empty for {type(error).__name__}"
+            assert "Exception" not in response.user_message, \
+                f"User message should not contain 'Exception' for {type(error).__name__}"
+            assert "Error:" not in response.user_message, \
+                f"User message should not contain 'Error:' for {type(error).__name__}"
+            
+            # Property 4: Technical details should be preserved for logging
+            assert response.technical_details is not None, \
+                f"Technical details should be captured for {type(error).__name__}"
+            assert type(error).__name__ in response.technical_details, \
+                f"Technical details should include error type for {type(error).__name__}"
+            
+            # Property 5: Error type should be categorized
+            valid_error_types = {"timeout", "rate_limit", "api", "config", "network", "response", "unknown"}
+            assert response.error_type in valid_error_types, \
+                f"Error type '{response.error_type}' should be valid for {type(error).__name__}"
+            
+            # Property 6: to_dict should produce valid JSON-serializable dict
+            response_dict = response.to_dict()
+            assert isinstance(response_dict, dict), "to_dict should return a dict"
+            assert "success" in response_dict, "Dict should have 'success' key"
+            assert "error_type" in response_dict, "Dict should have 'error_type' key"
+            assert "user_message" in response_dict, "Dict should have 'user_message' key"
+            
+            # Property 7: Technical details should NOT be in the dict (for security)
+            assert "technical_details" not in response_dict, \
+                "Technical details should not be exposed in dict"
+    
+    @settings(max_examples=100, deadline=None)
+    @given(
+        error_message=st.text(min_size=1, max_size=100).filter(lambda x: x.strip()),
+        status_code=st.integers(min_value=400, max_value=599)
+    )
+    def test_error_type_categorization(self, error_message, status_code):
+        """
+        Test that errors are correctly categorized by type.
+        
+        Different error types should map to appropriate error_type values.
+        """
+        # Timeout errors -> "timeout"
+        timeout_response = AIErrorResponse.from_exception(TimeoutError(error_message))
+        assert timeout_response.error_type == "timeout"
+        
+        # Rate limit errors -> "rate_limit"
+        rate_limit_response = AIErrorResponse.from_exception(RateLimitError(error_message))
+        assert rate_limit_response.error_type == "rate_limit"
+        
+        # Server errors -> "api"
+        server_response = AIErrorResponse.from_exception(ServerError(error_message))
+        assert server_response.error_type == "api"
+        
+        # Auth errors -> "config"
+        auth_response = AIErrorResponse.from_exception(AuthenticationError(error_message))
+        assert auth_response.error_type == "config"
+        
+        # Client errors -> "api"
+        client_response = AIErrorResponse.from_exception(ClientError(error_message, status_code))
+        assert client_response.error_type == "api"
+        
+        # Network errors -> "network"
+        network_response = AIErrorResponse.from_exception(ConnectionError(error_message))
+        assert network_response.error_type == "network"
+    
+    @settings(max_examples=100, deadline=None)
+    @given(retry_after=st.integers(min_value=1, max_value=300))
+    def test_retry_after_preserved(self, retry_after):
+        """
+        Test that retry_after value is preserved in error response.
+        
+        When an error includes retry_after, it should be included in the response.
+        """
+        error = RateLimitError("Rate limited", retry_after=retry_after)
+        response = AIErrorResponse.from_exception(error)
+        
+        assert response.retry_after == retry_after, \
+            f"retry_after should be preserved: expected {retry_after}, got {response.retry_after}"
+        
+        # Should also be in dict when present
+        response_dict = response.to_dict()
+        assert response_dict.get("retry_after") == retry_after, \
+            "retry_after should be in dict when present"
