@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Custom theme configuration with dark mode class strategy */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Primary color: Indigo (#4F46E5) */
+/* Accent color: Cyan (#22D3EE) */
+
+:root {
+  --color-primary: #4F46E5;
+  --color-accent: #22D3EE;
+}
+
+body {
+  @apply bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100;
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}

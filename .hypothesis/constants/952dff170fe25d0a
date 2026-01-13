@@ -1,0 +1,4 @@
+# file: C:\Users\Kenshi\AppData\Roaming\Python\Python313\site-packages\flask_cors\core.py
+# hypothesis_version: 6.150.1
+
+['$', '(', ')', '*', ',', ', ', '.*', '/', '/*', '?', 'CORS_ALLOW_HEADERS', 'CORS_ALWAYS_SEND', 'CORS_EXPOSE_HEADERS', 'CORS_MAX_AGE', 'CORS_METHODS', 'CORS_ORIGINS', 'CORS_RESOURCES', 'CORS_SEND_WILDCARD', 'CORS_VARY_HEADER', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'Origin', 'PATCH', 'POST', 'PUT', 'Vary', '[', '\\', ']', '^', 'allow_headers', 'always_send', 'config', 'cors_', 'expose_headers', 'false', 'max_age', 'methods', 'origins', 'send_wildcard', 'supports_credentials', 'true', 'vary_header']

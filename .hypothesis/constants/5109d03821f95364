@@ -1,0 +1,4 @@
+# file: C:\KiroProject\backend\app\models\user.py
+# hypothesis_version: 6.150.1
+
+['User', 'created_at', 'email', 'id', 'is_anonymous', 'last_login', 'name', 'password_hash']
