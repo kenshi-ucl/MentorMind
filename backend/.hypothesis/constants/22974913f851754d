@@ -1,0 +1,4 @@
+# file: C:\Users\Kenshi\AppData\Roaming\Python\Python313\site-packages\flask\wrappers.py
+# hypothesis_version: 6.150.1
+
+['.', 'MAX_CONTENT_LENGTH', 'MAX_COOKIE_SIZE', 'MAX_FORM_MEMORY_SIZE', 'MAX_FORM_PARTS', 'multipart/form-data', 'text/html']

@@ -71,3 +71,59 @@ class TestAgentProperties:
         # Verify the agent name matches the requested name
         assert agent.name == agent_name, \
             f"Agent name mismatch: expected {agent_name}, got {agent.name}"
+
+
+    @settings(max_examples=100, deadline=None)
+    @given(question=non_empty_question_strategy)
+    def test_property_5_tutor_agent_response_generation(self, question):
+        """
+        Property 5: TutorAgent Response Generation
+        
+        For any non-empty question string submitted to the TutorAgent, 
+        the agent should return a non-empty response string within the timeout period.
+        
+        Validates: Requirements 4.2
+        """
+        # Create fresh orchestrator for each test
+        orchestrator = AgentOrchestrator()
+        
+        # Process the question through TutorAgent
+        response = orchestrator.process_chat(question)
+        
+        # Response should be non-empty
+        assert response is not None, "TutorAgent returned None"
+        assert isinstance(response, str), "TutorAgent response is not a string"
+        assert response.strip(), "TutorAgent returned empty response"
+        
+        # Response should not be the unavailable message
+        assert response != "TutorAgent is not available.", \
+            "TutorAgent is not available"
+
+    @settings(max_examples=100, deadline=None)
+    @given(
+        question=non_empty_question_strategy,
+        context=content_context_strategy
+    )
+    def test_property_5_tutor_agent_response_with_context(self, question, context):
+        """
+        Property 5 (extended): TutorAgent Response Generation with Context
+        
+        For any non-empty question string and optional content context,
+        the TutorAgent should return a non-empty response string.
+        
+        Validates: Requirements 4.2, 4.5
+        """
+        # Create fresh orchestrator for each test
+        orchestrator = AgentOrchestrator()
+        
+        # Process the question with context through TutorAgent
+        response = orchestrator.process_chat(question, context)
+        
+        # Response should be non-empty
+        assert response is not None, "TutorAgent returned None"
+        assert isinstance(response, str), "TutorAgent response is not a string"
+        assert response.strip(), "TutorAgent returned empty response"
+        
+        # Response should not be the unavailable message
+        assert response != "TutorAgent is not available.", \
+            "TutorAgent is not available"
