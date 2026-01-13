@@ -18,18 +18,7 @@ function AppContent() {
     return <LandingPage onAuthSuccess={() => {}} />;
   }
 
-  return (
-    <MainLayout>
-      <div className="flex flex-col items-center justify-center h-full">
-        <h2 className="text-3xl font-bold text-indigo-600 dark:text-indigo-400 mb-4">
-          Welcome to MentorMind
-        </h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          Your Personal AI Tutor — Learn Smarter
-        </p>
-      </div>
-    </MainLayout>
-  );
+  return <MainLayout />;
 }
 
 function App() {

@@ -55,7 +55,7 @@ export function DashboardView({ onNavigate }) {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      const response = await fetch(`${API_BASE}/demo/seed`, {
+      const response = await fetch(`${API_BASE}/seed`, {
         method: 'POST',
         headers,
       });
