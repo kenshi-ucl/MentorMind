@@ -1,87 +1,93 @@
-"""Content model for uploaded files and processed content."""
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Optional
+"""
+Content model for database persistence.
+
+Defines the Content table with SQLAlchemy ORM for storing uploaded file metadata.
+"""
 import uuid
+import json
+from datetime import datetime
+from typing import Optional, List
+
+from app.database import db
 
 
-@dataclass
-class Content:
-    """Model representing uploaded and processed content."""
+class Content(db.Model):
+    """Content model representing uploaded files and their metadata."""
     
-    id: str
-    user_id: str
-    filename: str
-    file_type: str  # 'video' | 'pdf'
-    file_path: str
-    summary: list[str] = field(default_factory=list)
-    key_points: list[str] = field(default_factory=list)
-    processed_at: Optional[datetime] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    __tablename__ = 'contents'
     
-    @classmethod
-    def create(cls, user_id: str, filename: str, file_type: str, 
-               file_path: str) -> "Content":
-        """
-        Create a new Content instance.
-        
-        Args:
-            user_id: ID of the user who uploaded the content.
-            filename: Original filename.
-            file_type: Type of file ('video' or 'pdf').
-            file_path: Path where the file is stored.
-            
-        Returns:
-            New Content instance.
-        """
-        return cls(
-            id=str(uuid.uuid4()),
-            user_id=user_id,
-            filename=filename,
-            file_type=file_type,
-            file_path=file_path,
-            summary=[],
-            key_points=[],
-            processed_at=None,
-            created_at=datetime.utcnow()
-        )
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    content_type = db.Column(db.String(50), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+    file_size = db.Column(db.Integer, default=0)
+    title = db.Column(db.String(255), nullable=True)
+    summary = db.Column(db.Text, nullable=True)
+    key_points_json = db.Column(db.Text, nullable=True)  # JSON array
+    topics_json = db.Column(db.Text, nullable=True)  # JSON array
+    processing_status = db.Column(db.String(20), default='pending')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<Content {self.id}: {self.filename}>'
+    
+    @property
+    def key_points(self) -> List[str]:
+        """Get key points as a list."""
+        return json.loads(self.key_points_json) if self.key_points_json else []
+    
+    @key_points.setter
+    def key_points(self, value: Optional[List[str]]) -> None:
+        """Set key points from a list."""
+        self.key_points_json = json.dumps(value) if value else None
+    
+    @property
+    def topics(self) -> List[str]:
+        """Get topics as a list."""
+        return json.loads(self.topics_json) if self.topics_json else []
+    
+    @topics.setter
+    def topics(self, value: Optional[List[str]]) -> None:
+        """Set topics from a list."""
+        self.topics_json = json.dumps(value) if value else None
     
     def to_dict(self) -> dict:
-        """Convert content to dictionary representation."""
+        """Convert content to dictionary for API responses."""
         return {
-            "id": self.id,
-            "user_id": self.user_id,
-            "filename": self.filename,
-            "file_type": self.file_type,
-            "file_path": self.file_path,
-            "summary": self.summary,
-            "key_points": self.key_points,
-            "processed_at": self.processed_at.isoformat() if self.processed_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None
+            'id': self.id,
+            'user_id': self.user_id,
+            'filename': self.filename,
+            'content_type': self.content_type,
+            'file_path': self.file_path,
+            'file_size': self.file_size,
+            'title': self.title,
+            'summary': self.summary,
+            'key_points': self.key_points,
+            'topics': self.topics,
+            'processing_status': self.processing_status,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }
     
     @classmethod
-    def from_dict(cls, data: dict) -> "Content":
-        """Create Content instance from dictionary."""
-        processed_at = None
-        if data.get("processed_at"):
-            processed_at = datetime.fromisoformat(data["processed_at"])
-        
-        created_at = datetime.utcnow()
-        if data.get("created_at"):
-            created_at = datetime.fromisoformat(data["created_at"])
-        
-        return cls(
-            id=data["id"],
-            user_id=data["user_id"],
-            filename=data["filename"],
-            file_type=data["file_type"],
-            file_path=data["file_path"],
-            summary=data.get("summary", []),
-            key_points=data.get("key_points", []),
-            processed_at=processed_at,
-            created_at=created_at
+    def from_dict(cls, data: dict) -> 'Content':
+        """Create a Content instance from a dictionary."""
+        content = cls(
+            id=data.get('id', str(uuid.uuid4())),
+            user_id=data['user_id'],
+            filename=data['filename'],
+            content_type=data['content_type'],
+            file_path=data['file_path'],
+            file_size=data.get('file_size', 0),
+            title=data.get('title'),
+            summary=data.get('summary'),
+            processing_status=data.get('processing_status', 'pending'),
+            created_at=datetime.fromisoformat(data['created_at']) if data.get('created_at') else datetime.utcnow()
         )
+        # Set JSON properties through setters
+        content.key_points = data.get('key_points', [])
+        content.topics = data.get('topics', [])
+        return content
 
 
 # Allowed file types for upload

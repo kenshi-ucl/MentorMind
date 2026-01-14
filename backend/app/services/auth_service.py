@@ -1,26 +1,32 @@
-"""Authentication service for user management."""
-import uuid
+"""
+Authentication service for user management with database persistence.
+
+Uses SQLAlchemy ORM for storing users and sessions in the database.
+"""
 import bcrypt
 from datetime import datetime
 from typing import Optional, Tuple
+
+from app.database import db
 from app.models.user import User
+from app.models.session import Session
 
 
 class AuthService:
-    """Service for handling user authentication operations."""
+    """Service for handling user authentication operations with database persistence."""
     
-    def __init__(self):
-        # In-memory user storage (would be replaced with database in production)
-        self._users: dict[str, User] = {}
-        self._email_index: dict[str, str] = {}  # email -> user_id mapping
-        self._sessions: dict[str, str] = {}  # session_id -> user_id mapping
-    
-    def register(self, email: str, password: str, name: str) -> Tuple[Optional[User], Optional[str]]:
+    def register(self, email: str, password: str, name: str) -> Tuple[Optional[dict], Optional[str]]:
         """
-        Register a new user.
+        Register a new user with database persistence.
         
+        Args:
+            email: User's email address
+            password: User's password (will be hashed)
+            name: User's display name
+            
         Returns:
-            Tuple of (User, None) on success, or (None, error_message) on failure.
+            Tuple of ({'user': User, 'session': Session}, None) on success,
+            or (None, error_message) on failure.
         """
         # Validate inputs
         if not email or not email.strip():
@@ -34,7 +40,8 @@ class AuthService:
         name = name.strip()
         
         # Check if email already exists
-        if email in self._email_index:
+        existing = User.query.filter_by(email=email).first()
+        if existing:
             return None, "An account with this email already exists"
         
         # Hash password
@@ -47,19 +54,27 @@ class AuthService:
             password_hash=password_hash,
             is_anonymous=False
         )
+        db.session.add(user)
+        db.session.commit()
         
-        # Store user
-        self._users[user.id] = user
-        self._email_index[email] = user.id
+        # Create session for the new user
+        session = Session.create_for_user(user.id)
+        db.session.add(session)
+        db.session.commit()
         
-        return user, None
+        return {'user': user, 'session': session}, None
     
-    def login(self, email: str, password: str) -> Tuple[Optional[User], Optional[str]]:
+    def login(self, email: str, password: str) -> Tuple[Optional[dict], Optional[str]]:
         """
         Authenticate a user with email and password.
         
+        Args:
+            email: User's email address
+            password: User's password
+            
         Returns:
-            Tuple of (User, None) on success, or (None, error_message) on failure.
+            Tuple of ({'user': User, 'session': Session}, None) on success,
+            or (None, error_message) on failure.
         """
         if not email or not password:
             return None, "Email and password are required"
@@ -67,11 +82,7 @@ class AuthService:
         email = email.lower().strip()
         
         # Find user by email
-        user_id = self._email_index.get(email)
-        if not user_id:
-            return None, "Invalid email or password"
-        
-        user = self._users.get(user_id)
+        user = User.query.filter_by(email=email).first()
         if not user:
             return None, "Invalid email or password"
         
@@ -85,81 +96,135 @@ class AuthService:
         # Update last login
         user.last_login = datetime.utcnow()
         
-        return user, None
-
-    def create_anonymous_session(self) -> Tuple[str, User]:
+        # Create new session
+        session = Session.create_for_user(user.id)
+        db.session.add(session)
+        db.session.commit()
+        
+        return {'user': user, 'session': session}, None
+    
+    def create_anonymous(self) -> dict:
         """
-        Create an anonymous user session.
+        Create an anonymous user and session.
         
         Returns:
-            Tuple of (session_id, User).
+            Dictionary with 'user' and 'session' keys.
         """
         # Create anonymous user
         user = User(
-            name="Anonymous User",
+            name='Anonymous User',
             is_anonymous=True
         )
+        db.session.add(user)
+        db.session.commit()
         
-        # Store user
-        self._users[user.id] = user
+        # Create session for anonymous user
+        session = Session.create_for_user(user.id)
+        db.session.add(session)
+        db.session.commit()
         
-        # Create session
-        session_id = str(uuid.uuid4())
-        self._sessions[session_id] = user.id
-        
-        return session_id, user
-    
-    def create_session(self, user_id: str) -> str:
-        """Create a session for an authenticated user."""
-        session_id = str(uuid.uuid4())
-        self._sessions[session_id] = user_id
-        return session_id
-    
-    def get_user_by_session(self, session_id: str) -> Optional[User]:
-        """Get user by session ID."""
-        user_id = self._sessions.get(session_id)
-        if not user_id:
-            return None
-        return self._users.get(user_id)
+        return {'user': user, 'session': session}
     
     def validate_token(self, token: str) -> Optional[User]:
         """
-        Validate a token (session ID) and return the associated user.
-        
-        This is an alias for get_user_by_session for API compatibility.
+        Validate a session token and return the associated user.
         
         Args:
             token: The session token to validate
             
         Returns:
-            User if token is valid, None otherwise
+            User if token is valid and not expired, None otherwise.
         """
-        return self.get_user_by_session(token)
-    
-    def get_user_by_id(self, user_id: str) -> Optional[User]:
-        """Get user by ID."""
-        return self._users.get(user_id)
-    
-    def get_user_by_email(self, email: str) -> Optional[User]:
-        """Get user by email."""
-        email = email.lower().strip()
-        user_id = self._email_index.get(email)
-        if not user_id:
+        if not token:
             return None
-        return self._users.get(user_id)
+            
+        session = Session.query.filter_by(token=token).first()
+        if not session:
+            return None
+        
+        if session.is_expired:
+            return None
+        
+        return session.user
     
-    def invalidate_session(self, session_id: str) -> bool:
-        """Invalidate a session (logout)."""
-        if session_id in self._sessions:
-            del self._sessions[session_id]
+    def logout(self, token: str) -> bool:
+        """
+        Invalidate a session (logout).
+        
+        Args:
+            token: The session token to invalidate
+            
+        Returns:
+            True if session was found and deleted, False otherwise.
+        """
+        if not token:
+            return False
+            
+        session = Session.query.filter_by(token=token).first()
+        if session:
+            db.session.delete(session)
+            db.session.commit()
             return True
         return False
     
-    def clear_all(self):
-        """Clear all users and sessions (for testing)."""
-        self._users.clear()
-        self._email_index.clear()
-        self._sessions.clear()
+    def refresh_session(self, token: str, duration_hours: int = 24) -> Optional[Session]:
+        """
+        Refresh a session's expiration time.
+        
+        Args:
+            token: The session token to refresh
+            duration_hours: How long to extend the session (default 24 hours)
+            
+        Returns:
+            Updated Session if found and not expired, None otherwise.
+        """
+        if not token:
+            return None
+            
+        session = Session.query.filter_by(token=token).first()
+        if not session or session.is_expired:
+            return None
+        
+        session.refresh(duration_hours)
+        db.session.commit()
+        return session
+    
+    def get_user_by_id(self, user_id: str) -> Optional[User]:
+        """Get user by ID."""
+        return User.query.get(user_id)
+    
+    def get_user_by_email(self, email: str) -> Optional[User]:
+        """Get user by email."""
+        if not email:
+            return None
+        email = email.lower().strip()
+        return User.query.filter_by(email=email).first()
+    
+    # Legacy method aliases for backward compatibility
+    def create_anonymous_session(self) -> Tuple[str, User]:
+        """
+        Create an anonymous user session (legacy method).
+        
+        Returns:
+            Tuple of (session_token, User).
+        """
+        result = self.create_anonymous()
+        return result['session'].token, result['user']
+    
+    def create_session(self, user_id: str) -> str:
+        """Create a session for an authenticated user (legacy method)."""
+        session = Session.create_for_user(user_id)
+        db.session.add(session)
+        db.session.commit()
+        return session.token
+    
+    def get_user_by_session(self, session_id: str) -> Optional[User]:
+        """Get user by session ID (legacy method, alias for validate_token)."""
+        return self.validate_token(session_id)
+    
+    def invalidate_session(self, session_id: str) -> bool:
+        """Invalidate a session (legacy method, alias for logout)."""
+        return self.logout(session_id)
 
 
 # Global auth service instance

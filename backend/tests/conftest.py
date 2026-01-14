@@ -1,15 +1,27 @@
 """Shared test fixtures for pytest."""
+import os
 import pytest
 from app import create_app
-from app.services.auth_service import auth_service
+from app.database import db
 
 
-@pytest.fixture
+@pytest.fixture(scope='function')
 def app():
-    """Create application for testing."""
+    """Create application for testing with in-memory SQLite database."""
+    # Set test database URL to in-memory SQLite
+    os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+    
     app = create_app()
     app.config['TESTING'] = True
-    return app
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+    
+    with app.app_context():
+        # Create all tables
+        db.create_all()
+        yield app
+        # Clean up after test
+        db.session.remove()
+        db.drop_all()
 
 
 @pytest.fixture
@@ -18,9 +30,9 @@ def client(app):
     return app.test_client()
 
 
-@pytest.fixture(autouse=True)
-def clean_auth_service():
-    """Clean auth service before each test."""
-    auth_service.clear_all()
-    yield
-    auth_service.clear_all()
+@pytest.fixture
+def db_session(app):
+    """Provide a database session for tests."""
+    with app.app_context():
+        yield db.session
+        db.session.rollback()

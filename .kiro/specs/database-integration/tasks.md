@@ -22,39 +22,39 @@ This implementation plan integrates SQLite database into MentorMind to replace i
     - Add `flask-sqlalchemy` and `sqlalchemy` to requirements.txt
     - _Requirements: 1.3_
 
-- [ ] 2. Create database models
-  - [ ] 2.1 Create User model
+- [x] 2. Create database models
+  - [x] 2.1 Create User model
     - Create `backend/app/models/user.py`
     - Define User table with all required fields
     - Add relationships to Session, Content, QuizResult
     - _Requirements: 2.4_
-  - [ ] 2.2 Create Session model
+  - [x] 2.2 Create Session model
     - Create `backend/app/models/session.py`
     - Define Session table with token and expiration
     - Add `is_expired` property and `create_for_user` class method
     - _Requirements: 3.2_
-  - [ ] 2.3 Create Content model
+  - [x] 2.3 Create Content model
     - Create `backend/app/models/content.py`
     - Define Content table with file metadata
     - Add JSON properties for key_points and topics
     - _Requirements: 4.2_
-  - [ ] 2.4 Create QuizResult model
+  - [x] 2.4 Create QuizResult model
     - Create `backend/app/models/quiz_result.py`
     - Define QuizResult table with score tracking
     - Add JSON property for answers
     - _Requirements: 5.2_
-  - [ ] 2.5 Create models __init__.py
+  - [x] 2.5 Create models __init__.py
     - Create `backend/app/models/__init__.py`
     - Export all models for easy importing
     - _Requirements: 1.3_
 
-- [ ] 3. Checkpoint - Verify database setup
+- [x] 3. Checkpoint - Verify database setup
   - Ensure database file is created
   - Verify all tables are created
   - Ask the user if questions arise
 
-- [ ] 4. Update AuthService for database persistence
-  - [ ] 4.1 Rewrite AuthService to use SQLAlchemy
+- [x] 4. Update AuthService for database persistence
+  - [x] 4.1 Rewrite AuthService to use SQLAlchemy
     - Update `backend/app/services/auth_service.py`
     - Implement `register()` with database persistence
     - Implement `login()` with credential validation
@@ -62,13 +62,13 @@ This implementation plan integrates SQLite database into MentorMind to replace i
     - Implement `validate_token()` for session validation
     - Implement `logout()` to invalidate sessions
     - _Requirements: 2.1, 2.2, 2.3, 2.5, 3.1, 3.3, 3.4, 3.5_
-  - [ ] 4.2 Write property test for user persistence round-trip
+  - [x] 4.2 Write property test for user persistence round-trip
     - **Property 1: User Persistence Round-Trip**
     - **Validates: Requirements 2.1, 2.3, 2.5**
-  - [ ] 4.3 Write property test for authentication correctness
+  - [x] 4.3 Write property test for authentication correctness
     - **Property 2: Authentication Correctness**
     - **Validates: Requirements 2.2**
-  - [ ] 4.4 Write property test for session lifecycle
+  - [x] 4.4 Write property test for session lifecycle
     - **Property 3: Session Lifecycle Validity**
     - **Validates: Requirements 3.1, 3.3, 3.4**
 

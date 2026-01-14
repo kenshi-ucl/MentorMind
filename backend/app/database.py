@@ -66,6 +66,10 @@ def init_db(app):
         data_dir = os.path.join(backend_dir, 'data')
         os.makedirs(data_dir, exist_ok=True)
     
+    # Import models before creating tables so SQLAlchemy knows about them
+    # This must happen after db.init_app() but before db.create_all()
+    from app.models import User, Session, Content, QuizResult
+    
     # Create all tables
     with app.app_context():
         db.create_all()
