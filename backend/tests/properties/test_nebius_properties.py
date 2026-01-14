@@ -1395,3 +1395,218 @@ class TestLargeDocumentChunkingProperties:
             assert result.get('processing_status') == 'complete', \
                 "Small document should process successfully"
 
+
+
+
+class TestFallbackModeProperties:
+    """Property-based tests for fallback mode when API key is missing."""
+    
+    @settings(max_examples=100, deadline=None)
+    @given(
+        user_message=st.text(min_size=1, max_size=200).filter(lambda x: x.strip()),
+        context_items=st.lists(
+            st.text(min_size=1, max_size=100).filter(lambda x: x.strip()),
+            min_size=0,
+            max_size=3
+        )
+    )
+    def test_property_2_fallback_on_missing_api_key(self, user_message, context_items):
+        """
+        Property 2: Fallback on Missing API Key
+        
+        For any system state where NEBIUS_API_KEY is not set, the AgentOrchestrator
+        SHALL return placeholder responses without throwing exceptions.
+        
+        **Validates: Requirements 1.2**
+        """
+        # Store original env value
+        original_value = os.environ.get("NEBIUS_API_KEY")
+        
+        try:
+            # Remove API key from environment
+            if "NEBIUS_API_KEY" in os.environ:
+                del os.environ["NEBIUS_API_KEY"]
+            
+            # Create a fresh config without API key
+            config = NebiusConfig.default()
+            
+            # Property 1: Config should indicate no API key
+            assert not config.has_api_key(), \
+                "Config should indicate no API key when env var is not set"
+            
+            # Create client with no API key
+            from app.services.nebius_client import NebiusClient
+            client = NebiusClient(config=config)
+            
+            # Property 2: Client should be in fallback mode
+            assert client.is_fallback_mode, \
+                "Client should be in fallback mode when API key is missing"
+            
+            # Property 3: Fallback reason should indicate missing API key
+            assert client.fallback_reason is not None, \
+                "Fallback reason should be set"
+            assert "missing_api_key" in client.fallback_reason, \
+                f"Fallback reason should indicate missing API key, got: {client.fallback_reason}"
+            
+            # Create orchestrator with the fallback client
+            orchestrator = AgentOrchestrator(config=config, nebius_client=client)
+            
+            # Property 4: Orchestrator should indicate fallback mode
+            assert orchestrator.is_fallback_mode, \
+                "Orchestrator should be in fallback mode"
+            
+            # Property 5: Chat should return placeholder without exception
+            context = context_items if context_items else None
+            response = orchestrator.process_chat(user_message, context, stream=False)
+            
+            assert response is not None, \
+                "Response should not be None in fallback mode"
+            assert isinstance(response, str), \
+                "Response should be a string"
+            assert len(response) > 0, \
+                "Response should not be empty"
+            
+            # Property 6: Response should indicate fallback mode
+            assert "Fallback" in response or "unavailable" in response.lower(), \
+                f"Response should indicate fallback mode: {response[:100]}"
+            
+            # Property 7: Quiz generation should return placeholder without exception
+            questions = orchestrator.generate_quiz(topic="Test Topic", question_count=3)
+            
+            assert questions is not None, \
+                "Quiz questions should not be None in fallback mode"
+            assert isinstance(questions, list), \
+                "Quiz questions should be a list"
+            assert len(questions) == 3, \
+                f"Should return requested number of questions, got {len(questions)}"
+            
+            # Property 8: Each quiz question should have valid structure
+            for i, q in enumerate(questions):
+                assert "id" in q, f"Question {i+1} should have 'id'"
+                assert "question" in q, f"Question {i+1} should have 'question'"
+                assert "options" in q, f"Question {i+1} should have 'options'"
+                assert len(q["options"]) == 4, f"Question {i+1} should have 4 options"
+                assert "correct_index" in q, f"Question {i+1} should have 'correct_index'"
+                assert "explanation" in q, f"Question {i+1} should have 'explanation'"
+            
+        finally:
+            # Restore original env value
+            if original_value is not None:
+                os.environ["NEBIUS_API_KEY"] = original_value
+            elif "NEBIUS_API_KEY" in os.environ:
+                del os.environ["NEBIUS_API_KEY"]
+    
+    @settings(max_examples=50, deadline=None)
+    @given(
+        content_type=st.sampled_from(['pdf', 'image', 'text']),
+        filename=st.text(min_size=1, max_size=30).filter(lambda x: x.strip() and '/' not in x and '\\' not in x)
+    )
+    def test_fallback_content_processing(self, content_type, filename):
+        """
+        Test that content processing returns valid structure in fallback mode.
+        
+        When API key is missing, content processing should return a valid
+        result structure with fallback indication.
+        """
+        # Store original env value
+        original_value = os.environ.get("NEBIUS_API_KEY")
+        
+        try:
+            # Remove API key from environment
+            if "NEBIUS_API_KEY" in os.environ:
+                del os.environ["NEBIUS_API_KEY"]
+            
+            # Create config and client without API key
+            config = NebiusConfig.default()
+            from app.services.nebius_client import NebiusClient
+            client = NebiusClient(config=config)
+            
+            # Create orchestrator
+            orchestrator = AgentOrchestrator(config=config, nebius_client=client)
+            
+            # Process content
+            content_data = b"fake data" if content_type == 'image' else "text content"
+            result = orchestrator.process_content(
+                content_data=content_data,
+                content_type=content_type,
+                filename=filename
+            )
+            
+            # Property 1: Result should be a valid dictionary
+            assert isinstance(result, dict), "Result should be a dictionary"
+            
+            # Property 2: Result should have all required fields
+            required_fields = ['title', 'summary', 'key_points', 'concepts', 'topics', 'source_type']
+            for field in required_fields:
+                assert field in result, f"Result should have '{field}' field"
+            
+            # Property 3: Processing status should indicate partial or fallback
+            if 'processing_status' in result:
+                assert result['processing_status'] in ['partial', 'complete', 'failed'], \
+                    f"Processing status should be valid, got: {result['processing_status']}"
+            
+            # Property 4: Source type should match input
+            assert result['source_type'] == content_type, \
+                f"Source type should be '{content_type}', got '{result['source_type']}'"
+            
+        finally:
+            # Restore original env value
+            if original_value is not None:
+                os.environ["NEBIUS_API_KEY"] = original_value
+            elif "NEBIUS_API_KEY" in os.environ:
+                del os.environ["NEBIUS_API_KEY"]
+    
+    @settings(max_examples=50, deadline=None)
+    @given(
+        user_message=st.text(min_size=1, max_size=100).filter(lambda x: x.strip())
+    )
+    def test_fallback_streaming_response(self, user_message):
+        """
+        Test that streaming responses work correctly in fallback mode.
+        
+        When API key is missing, streaming should still work and return
+        placeholder content.
+        """
+        # Store original env value
+        original_value = os.environ.get("NEBIUS_API_KEY")
+        
+        try:
+            # Remove API key from environment
+            if "NEBIUS_API_KEY" in os.environ:
+                del os.environ["NEBIUS_API_KEY"]
+            
+            # Create config and client without API key
+            config = NebiusConfig.default()
+            from app.services.nebius_client import NebiusClient
+            client = NebiusClient(config=config)
+            
+            # Create orchestrator
+            orchestrator = AgentOrchestrator(config=config, nebius_client=client)
+            
+            # Get streaming response
+            response_gen = orchestrator.process_chat(user_message, stream=True)
+            
+            # Property 1: Should return a generator
+            assert hasattr(response_gen, '__iter__') or hasattr(response_gen, '__next__'), \
+                "Streaming response should be iterable"
+            
+            # Property 2: Collect all chunks
+            chunks = list(response_gen)
+            
+            # Property 3: Should have at least one chunk
+            assert len(chunks) > 0, "Should have at least one chunk"
+            
+            # Property 4: Combined chunks should form valid response
+            full_response = ''.join(chunks)
+            assert len(full_response) > 0, "Combined response should not be empty"
+            
+            # Property 5: Response should indicate fallback mode
+            assert "Fallback" in full_response or "unavailable" in full_response.lower(), \
+                f"Streaming response should indicate fallback mode: {full_response[:100]}"
+            
+        finally:
+            # Restore original env value
+            if original_value is not None:
+                os.environ["NEBIUS_API_KEY"] = original_value
+            elif "NEBIUS_API_KEY" in os.environ:
+                del os.environ["NEBIUS_API_KEY"]

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useAuth } from '../../context/AuthContext';
@@ -8,17 +8,20 @@ const API_BASE = 'http://localhost:5000/api';
 /**
  * ChatInterface component for TutorAgent interaction.
  * Displays conversation history and allows users to send messages.
+ * Supports both streaming and non-streaming responses.
  * 
- * Requirements: 4.1, 4.3, 4.6
+ * Requirements: 4.1, 4.3, 4.6, 2.5
  */
-export function ChatInterface({ contentContext = [] }) {
+export function ChatInterface({ contentContext = [], enableStreaming = true }) {
   const { token } = useAuth();
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -30,11 +33,26 @@ export function ChatInterface({ contentContext = [] }) {
     inputRef.current?.focus();
   }, []);
 
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   /**
-   * Send a message to the TutorAgent API
+   * Send a message to the TutorAgent API with streaming support
    */
   const sendMessage = async (content) => {
     if (!content.trim()) return;
+
+    // Cancel any ongoing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
     // Add user message to conversation
     const userMessage = {
@@ -48,6 +66,153 @@ export function ChatInterface({ contentContext = [] }) {
     setIsLoading(true);
     setError(null);
 
+    // Create placeholder for assistant message (for streaming)
+    const assistantMessageId = `assistant-${Date.now()}`;
+    
+    if (enableStreaming) {
+      await sendStreamingMessage(content.trim(), assistantMessageId);
+    } else {
+      await sendNonStreamingMessage(content.trim(), assistantMessageId);
+    }
+  };
+
+  /**
+   * Send message with streaming response (SSE)
+   */
+  const sendStreamingMessage = async (content, assistantMessageId) => {
+    try {
+      setIsStreaming(true);
+      
+      // Add empty assistant message that will be updated with streamed content
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE}/chat/message`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          message: content,
+          contentContext: contentContext,
+          stream: true,
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to send message');
+      }
+
+      // Process SSE stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Process complete SSE events from buffer
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+        
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            const eventType = line.slice(7).trim();
+            continue;
+          }
+          
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            
+            try {
+              // Try to parse as JSON first (for done/error events)
+              const parsed = JSON.parse(data);
+              
+              if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+              
+              if (parsed.messageId) {
+                // Done event - update message with final ID
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMessageId
+                      ? { ...m, isStreaming: false }
+                      : m
+                  )
+                );
+              }
+            } catch (parseError) {
+              // Not JSON, treat as text chunk
+              // Unescape the SSE data
+              const chunk = data
+                .replace(/\\n/g, '\n')
+                .replace(/\\r/g, '\r')
+                .replace(/\\"/g, '"')
+                .replace(/\\\\/g, '\\');
+              
+              fullContent += chunk;
+              
+              // Update the assistant message with new content
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMessageId
+                    ? { ...m, content: fullContent }
+                    : m
+                )
+              );
+            }
+          }
+        }
+      }
+
+      // Ensure streaming flag is removed
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantMessageId
+            ? { ...m, isStreaming: false }
+            : m
+        )
+      );
+
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        // Request was cancelled, don't show error
+        return;
+      }
+      
+      setError(err.message || 'Failed to send message. Please try again.');
+      // Remove the incomplete assistant message on error
+      setMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
+    } finally {
+      setIsLoading(false);
+      setIsStreaming(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  /**
+   * Send message with non-streaming response
+   */
+  const sendNonStreamingMessage = async (content, assistantMessageId) => {
     try {
       const headers = {
         'Content-Type': 'application/json',
@@ -60,9 +225,11 @@ export function ChatInterface({ contentContext = [] }) {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          message: content.trim(),
+          message: content,
           contentContext: contentContext,
+          stream: false,
         }),
+        signal: abortControllerRef.current.signal,
       });
 
       const data = await response.json();
@@ -73,16 +240,17 @@ export function ChatInterface({ contentContext = [] }) {
 
       // Add assistant response to conversation
       const assistantMessage = {
-        id: data.messageId || `assistant-${Date.now()}`,
+        id: data.messageId || assistantMessageId,
         role: 'assistant',
         content: data.response,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
+      if (err.name === 'AbortError') {
+        return;
+      }
       setError(err.message || 'Failed to send message. Please try again.');
-      // Remove the user message if the request failed
-      setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
     } finally {
       setIsLoading(false);
       inputRef.current?.focus();
@@ -167,8 +335,8 @@ export function ChatInterface({ contentContext = [] }) {
           />
         ))}
 
-        {/* Loading Indicator */}
-        {isLoading && <LoadingIndicator />}
+        {/* Loading/Streaming Indicator */}
+        {isLoading && !isStreaming && <LoadingIndicator />}
 
         {/* Error Message */}
         {error && (
@@ -248,6 +416,7 @@ export function ChatInterface({ contentContext = [] }) {
  */
 function MessageBubble({ message, formatTime }) {
   const isUser = message.role === 'user';
+  const isStreaming = message.isStreaming;
 
   return (
     <div
@@ -270,21 +439,40 @@ function MessageBubble({ message, formatTime }) {
           }`}
         >
           {isUser ? 'You' : 'TutorAgent'}
+          {isStreaming && (
+            <span className="ml-2 inline-flex items-center">
+              <span className="animate-pulse">typing</span>
+              <span className="ml-1 flex space-x-0.5">
+                <span className="w-1 h-1 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1 h-1 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1 h-1 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </span>
+            </span>
+          )}
         </div>
 
         {/* Message Content */}
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        <div className="whitespace-pre-wrap break-words">
+          {message.content}
+          {isStreaming && !message.content && (
+            <span className="text-gray-400 dark:text-gray-500 italic">
+              Thinking...
+            </span>
+          )}
+        </div>
 
         {/* Timestamp */}
-        <div
-          className={`text-xs mt-1 ${
-            isUser
-              ? 'text-indigo-200'
-              : 'text-gray-400 dark:text-gray-500'
-          }`}
-        >
-          {formatTime(message.timestamp)}
-        </div>
+        {!isStreaming && (
+          <div
+            className={`text-xs mt-1 ${
+              isUser
+                ? 'text-indigo-200'
+                : 'text-gray-400 dark:text-gray-500'
+            }`}
+          >
+            {formatTime(message.timestamp)}
+          </div>
+        )}
       </div>
     </div>
   );

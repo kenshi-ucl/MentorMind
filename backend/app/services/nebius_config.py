@@ -13,6 +13,7 @@ class ModelConfig:
     temperature: float = 0.7
     max_tokens: int = 2048
     top_p: float = 1.0
+    fallback_model_id: Optional[str] = None
     
     @classmethod
     def from_dict(cls, data: dict) -> "ModelConfig":
@@ -21,17 +22,27 @@ class ModelConfig:
             model_id=data.get("model_id", ""),
             temperature=data.get("temperature", 0.7),
             max_tokens=data.get("max_tokens", 2048),
-            top_p=data.get("top_p", 1.0)
+            top_p=data.get("top_p", 1.0),
+            fallback_model_id=data.get("fallback_model_id")
         )
     
     def to_dict(self) -> dict:
         """Convert to dictionary."""
-        return {
+        result = {
             "model_id": self.model_id,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "top_p": self.top_p
         }
+        if self.fallback_model_id:
+            result["fallback_model_id"] = self.fallback_model_id
+        return result
+    
+    def get_model_id_with_fallback(self, use_fallback: bool = False) -> str:
+        """Get the model ID, using fallback if requested and available."""
+        if use_fallback and self.fallback_model_id:
+            return self.fallback_model_id
+        return self.model_id
 
 
 @dataclass
@@ -132,7 +143,8 @@ class NebiusConfig:
         return ModelConfig(
             model_id="openai/gpt-oss-120b",
             temperature=0.7,
-            max_tokens=2048
+            max_tokens=2048,
+            fallback_model_id="deepseek-ai/DeepSeek-V3"
         )
     
     @staticmethod
@@ -140,7 +152,8 @@ class NebiusConfig:
         return ModelConfig(
             model_id="openai/gpt-oss-120b",
             temperature=0.3,
-            max_tokens=4096
+            max_tokens=4096,
+            fallback_model_id="deepseek-ai/DeepSeek-V3"
         )
     
     @staticmethod
@@ -148,7 +161,8 @@ class NebiusConfig:
         return ModelConfig(
             model_id="openai/gpt-oss-120b",
             temperature=0.5,
-            max_tokens=4096
+            max_tokens=4096,
+            fallback_model_id="deepseek-ai/DeepSeek-V3"
         )
     
     @staticmethod
@@ -156,13 +170,15 @@ class NebiusConfig:
         return ModelConfig(
             model_id="google/gemma-3-27b-it-fast",
             temperature=0.5,
-            max_tokens=2048
+            max_tokens=2048,
+            fallback_model_id="google/gemma-3-27b-it"
         )
     
     @staticmethod
     def _default_embedding_model() -> ModelConfig:
         return ModelConfig(
-            model_id="intfloat/e5-mistral-7b-instruct"
+            model_id="intfloat/e5-mistral-7b-instruct",
+            fallback_model_id="BAAI/bge-en-icl"
         )
     
     def has_api_key(self) -> bool:

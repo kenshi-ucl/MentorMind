@@ -527,16 +527,27 @@ CRITICAL: Your previous response was not valid JSON. You MUST respond with ONLY 
         Returns:
             List of placeholder question dictionaries.
         """
-        logger.warning("Using fallback quiz generation due to AI failure")
+        logger.warning(
+            f"Using fallback quiz generation due to AI failure. "
+            f"Topic: {topic}, Question count: {question_count}"
+        )
         
         placeholder_questions = []
         for i in range(question_count):
             placeholder_questions.append({
                 "id": f"q{i+1}",
-                "question": f"[Fallback] Sample question {i+1} about {topic or 'the content'}?",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
+                "question": f"⚠️ [Fallback Mode] Sample question {i+1} about {topic or 'the content'}?",
+                "options": [
+                    "Option A (placeholder)",
+                    "Option B (placeholder)", 
+                    "Option C (placeholder)",
+                    "Option D (placeholder)"
+                ],
                 "correct_index": 0,
-                "explanation": "[Fallback] This is a placeholder question. The AI service was unavailable."
+                "explanation": (
+                    "⚠️ This is a placeholder question. The AI service was unavailable. "
+                    "To enable real quiz generation, set the NEBIUS_API_KEY environment variable."
+                )
             })
         
         return placeholder_questions
@@ -1340,13 +1351,20 @@ Extract the key information from this content and respond with ONLY the JSON obj
         filename: str
     ) -> dict:
         """Create a fallback result when AI is unavailable."""
+        logger.warning(
+            f"Returning fallback content result for {content_type} file: {filename}. "
+            f"Fallback mode: {self._nebius_client.is_fallback_mode}"
+        )
         return {
             "title": filename or "Uploaded Content",
-            "summary": f"[Fallback Mode] Content of type '{content_type}' was uploaded. "
-                      "AI analysis is currently unavailable.",
+            "summary": f"⚠️ **Fallback Mode Active**\n\n"
+                      f"Content of type '{content_type}' was uploaded successfully.\n\n"
+                      "AI analysis is currently unavailable. To enable real AI analysis:\n"
+                      "1. Set the `NEBIUS_API_KEY` environment variable\n"
+                      "2. Restart the backend server",
             "key_points": [
-                "[Fallback] Content uploaded successfully",
-                "[Fallback] AI analysis unavailable - please configure NEBIUS_API_KEY"
+                "Content uploaded successfully",
+                "AI analysis unavailable - configure NEBIUS_API_KEY to enable"
             ],
             "concepts": [],
             "topics": [],

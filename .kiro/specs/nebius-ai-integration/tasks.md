@@ -114,26 +114,34 @@ This implementation plan integrates Nebius AI API into MentorMind, replacing pla
   - Ensure all tests pass
   - Ask the user if questions arise
 
-- [ ] 9. Add fallback mode and final integration
-  - [ ] 9.1 Implement placeholder fallback mode
+- [x] 9. Add fallback mode and final integration
+  - [x] 9.1 Implement placeholder fallback mode
     - Detect when API key is missing
     - Return placeholder responses with warning
     - Log warning about missing configuration
     - _Requirements: 1.2_
-  - [ ] 9.2 Write property test for fallback on missing API key
+  - [x] 9.2 Write property test for fallback on missing API key
     - **Property 2: Fallback on Missing API Key**
     - **Validates: Requirements 1.2**
-  - [ ] 9.3 Update frontend to handle streaming responses
+  - [x] 9.3 Update frontend to handle streaming responses
     - Modify ChatInterface to consume SSE stream
     - Show typing indicator during streaming
     - _Requirements: 2.5_
-  - [ ] 9.4 Add model fallback configuration
+  - [x] 9.4 Add model fallback configuration
     - Implement fallback model selection when primary unavailable
     - _Requirements: 6.3_
 
-- [ ] 10. Final checkpoint - Complete integration verification
+- [x] 10. Final checkpoint - Complete integration verification
   - Run all property-based tests
   - Test end-to-end flow with real API
+  Start the backend server with NEBIUS_API_KEY explicitly set to the provided real key
+  Fallback mode must be disabled
+  Server must fail to start if the API key is missing or invalid
+  Test end-to-end flow using the real Nebius-compatible OpenAI API
+
+  Verify that no placeholder or mock responses are used during this run
+
+  Confirm fallback mode only activates when NEBIUS_API_KEY is unset (separate test)
   - Verify fallback mode works correctly
   - Ask the user if questions arise
 
