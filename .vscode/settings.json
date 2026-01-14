@@ -1,3 +1,6 @@
 {
-    "javascript.autoClosingTags": false
+    "javascript.autoClosingTags": false,
+    "kiroAgent.trustedCommands": [
+        "python * py * python -m pytest * pytest * pip * pip install * uv * npm * npm run * npx * git * poetry * poetry run * code * bash * sh * pwsh * powershell * cargo * cargo run * cargo test * docker * docker compose * docker-compose * ls * cd * cp * mv * rm * mkdir * rmdir * echo * cat * grep * find * ruff * black * eslint * eslint --fix * vite * vitest * npx vitest *"
+    ]
 }

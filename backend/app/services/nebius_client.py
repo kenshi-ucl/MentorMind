@@ -127,16 +127,28 @@ class NebiusClient:
     ) -> Union[str, Generator[str, None, None]]:
         """Generate fallback response when API is unavailable."""
         user_message = ""
-        for msg in reversed(messages):
+        has_context = False
+        
+        for msg in messages:
             if msg.get("role") == "user":
                 user_message = msg.get("content", "")
-                break
+            # Check if there's a context message
+            if "Content Context:" in msg.get("content", ""):
+                has_context = True
         
-        fallback_text = (
-            f"[Fallback Mode] I received your message: '{user_message[:100]}...'. "
-            "The AI service is currently unavailable. Please configure NEBIUS_API_KEY "
-            "environment variable to enable real AI responses."
-        )
+        if has_context:
+            fallback_text = (
+                f"[Fallback Mode - With Context] I received your message: '{user_message[:100]}...'. "
+                "I have context from your uploaded content. "
+                "The AI service is currently unavailable. Please configure NEBIUS_API_KEY "
+                "environment variable to enable real AI responses."
+            )
+        else:
+            fallback_text = (
+                f"[Fallback Mode] I received your message: '{user_message[:100]}...'. "
+                "The AI service is currently unavailable. Please configure NEBIUS_API_KEY "
+                "environment variable to enable real AI responses."
+            )
         
         if stream:
             def stream_fallback():

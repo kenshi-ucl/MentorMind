@@ -52,63 +52,63 @@ This implementation plan integrates Nebius AI API into MentorMind, replacing pla
   - Verify retry logic works with mocked failures
   - Ask the user if questions arise
 
-- [ ] 4. Integrate TutorAgent with Nebius
-  - [ ] 4.1 Update AgentOrchestrator.process_chat() method
+- [x] 4. Integrate TutorAgent with Nebius
+  - [x] 4.1 Update AgentOrchestrator.process_chat() method
     - Integrate NebiusClient for real AI responses
     - Build messages array with system prompt and context
     - Implement streaming response support
     - Add fallback to placeholder when API unavailable
     - _Requirements: 2.1, 2.2, 2.5, 2.6_
-  - [ ] 4.2 Write property test for chat message API call construction
+  - [x] 4.2 Write property test for chat message API call construction
     - **Property 3: Chat Message API Call Construction**
     - **Validates: Requirements 2.1, 2.2, 2.6**
-  - [ ] 4.3 Update chat route to support streaming
+  - [x] 4.3 Update chat route to support streaming
     - Modify `/api/chat/message` endpoint
     - Add Server-Sent Events (SSE) support for streaming
     - _Requirements: 2.5_
 
-- [ ] 5. Integrate QuizAgent with Nebius
-  - [ ] 5.1 Update AgentOrchestrator.generate_quiz() method
+- [x] 5. Integrate QuizAgent with Nebius
+  - [x] 5.1 Update AgentOrchestrator.generate_quiz() method
     - Integrate NebiusClient for real quiz generation
     - Use structured output prompting for JSON format
     - Implement JSON validation and retry on invalid format
     - _Requirements: 3.1, 3.2, 3.5, 3.6_
-  - [ ] 5.2 Write property test for quiz structure validity
+  - [x] 5.2 Write property test for quiz structure validity
     - **Property 5: Quiz Structure Validity**
     - **Validates: Requirements 3.1, 3.2, 3.6**
-  - [ ] 5.3 Write property test for quiz JSON round-trip
+  - [x] 5.3 Write property test for quiz JSON round-trip
     - **Property 6: Quiz JSON Round-Trip**
     - **Validates: Requirements 3.2**
-  - [ ] 5.4 Write property test for quiz options distinctness
+  - [x] 5.4 Write property test for quiz options distinctness
     - **Property 10: Quiz Options Distinctness**
     - **Validates: Requirements 7.2**
 
-- [ ] 6. Checkpoint - Verify TutorAgent and QuizAgent
+- [x] 6. Checkpoint - Verify TutorAgent and QuizAgent
   - Test chat with real AI responses
   - Test quiz generation produces valid questions
   - Ensure all tests pass
   - Ask the user if questions arise
 
-- [ ] 7. Integrate ContentAgent with Nebius
-  - [ ] 7.1 Update AgentOrchestrator.process_content() method
+- [x] 7. Integrate ContentAgent with Nebius
+  - [x] 7.1 Update AgentOrchestrator.process_content() method
     - Integrate NebiusClient for content analysis
     - Use Text_Model for PDF text summarization
     - Use Vision_Model for image analysis
     - Implement document chunking for large files
     - _Requirements: 4.1, 4.2, 4.6_
-  - [ ] 7.2 Add video frame extraction support
+  - [x] 7.2 Add video frame extraction support
     - Extract key frames from uploaded videos
     - Send frames to Vision_Model for analysis
     - Combine frame analyses into summary
     - _Requirements: 4.3_
-  - [ ] 7.3 Write property test for content processing output structure
+  - [x] 7.3 Write property test for content processing output structure
     - **Property 7: Content Processing Output Structure**
     - **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
-  - [ ] 7.4 Write property test for large document chunking
+  - [x] 7.4 Write property test for large document chunking
     - **Property 8: Large Document Chunking**
     - **Validates: Requirements 4.6**
 
-- [ ] 8. Checkpoint - Verify ContentAgent
+- [x] 8. Checkpoint - Verify ContentAgent
   - Test PDF upload and summarization
   - Test image upload and analysis
   - Ensure all tests pass

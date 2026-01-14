@@ -5,3 +5,4 @@ bcrypt>=4.1.0
 hypothesis>=6.100.0
 pytest>=8.0.0
 openai>=1.0.0
+opencv-python>=4.8.0

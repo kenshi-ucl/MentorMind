@@ -125,12 +125,14 @@ class ContentService:
             
             # Process through ContentAgent
             result = agent_orchestrator.process_content(
-                content_text=content_text,
-                content_type=content.file_type
+                content_data=content_text,
+                content_type=content.file_type,
+                filename=content.filename
             )
             
-            if "error" in result:
-                return None, result["error"]
+            # Check for processing failure
+            if result.get("processing_status") == "failed":
+                return None, result.get("error_message", "Processing failed")
             
             # Update content with extracted information
             content.summary = [result.get("summary", "")]
