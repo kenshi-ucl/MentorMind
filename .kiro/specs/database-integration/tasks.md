@@ -151,14 +151,14 @@ This implementation plan integrates SQLite database into MentorMind to replace i
     - Record quiz results on submission
     - _Requirements: 5.1_
 
-- [ ] 12. Checkpoint - Verify progress tracking
+- [x] 12. Checkpoint - Verify progress tracking
   - Test quiz submission and progress
   - Verify progress calculations
   - Ensure all tests pass
   - Ask the user if questions arise
 
-- [ ] 13. Final integration and testing
-  - [ ] 13.1 Write property test for data persistence across restarts
+- [-] 13. Final integration and testing
+  - [-] 13.1 Write property test for data persistence across restarts
     - **Property 9: Data Persistence Across Restarts**
     - **Validates: Requirements 6.2**
   - [ ] 13.2 Add error handling for database operations
