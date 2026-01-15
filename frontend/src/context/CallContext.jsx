@@ -233,20 +233,58 @@ export function CallProvider({ children }) {
       if (isVideoOff) {
         // Turn on video - need to get video stream if we don't have it
         const currentStream = localStreamRef.current;
-        if (!currentStream?.getVideoTracks().length) {
+        const existingVideoTracks = currentStream?.getVideoTracks() || [];
+        const hasEnabledVideoTrack = existingVideoTracks.some(t => t.readyState === 'live');
+        
+        console.log('toggleVideo ON: existingVideoTracks:', existingVideoTracks.length, 'hasEnabledVideoTrack:', hasEnabledVideoTrack);
+        
+        if (!hasEnabledVideoTrack) {
+          // Get a new stream with both audio and video
+          console.log('Getting new stream with video...');
           const stream = await webrtcService.getLocalStream(true, true);
+          console.log('New stream obtained:', stream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`));
+          
+          // Update state first so UI can react
+          setIsVideoOff(false);
           setLocalStream(stream);
+          
+          // Update all peer connections with the new stream
+          const needsRenegotiation = await webrtcService.updateLocalStream(stream);
+          
+          // If we added new tracks, we need to renegotiate
+          if (needsRenegotiation && call) {
+            console.log('Renegotiating after adding video track');
+            // Send renegotiation offers to all connected peers
+            const peerIds = Array.from(webrtcService.peerConnections.keys());
+            for (const peerId of peerIds) {
+              try {
+                const offer = await webrtcService.renegotiate(peerId);
+                if (offer) {
+                  console.log('Sending renegotiation offer to:', peerId);
+                  await websocketService.sendOffer(call.id, peerId, offer);
+                }
+              } catch (err) {
+                console.error('Failed to renegotiate with:', peerId, err);
+              }
+            }
+          }
+        } else {
+          // Just enable existing video track
+          console.log('Enabling existing video track');
+          webrtcService.toggleVideo(false);
+          setIsVideoOff(false);
         }
-        webrtcService.toggleVideo(false);
-        setIsVideoOff(false);
       } else {
-        // Turn off video
+        // Turn off video - just disable the track, don't remove it
+        console.log('toggleVideo OFF: disabling video track');
         webrtcService.toggleVideo(true);
         setIsVideoOff(true);
       }
       
       if (call) {
-        await websocketService.updateMediaState(call.id, { isVideoOff: !isVideoOff });
+        const newVideoOffState = !isVideoOff;
+        console.log('Sending media state update, isVideoOff:', newVideoOffState);
+        await websocketService.updateMediaState(call.id, { isVideoOff: newVideoOffState });
       }
     } catch (err) {
       console.error('Failed to toggle video:', err);
@@ -325,11 +363,27 @@ export function CallProvider({ children }) {
         clearInterval(durationIntervalRef.current);
         webrtcService.closeAllConnections();
         
+        // Stop local stream
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+        
         setActiveCall(null);
         setLocalStream(null);
         setRemoteStreams({});
         setCallDuration(0);
         setIsMinimized(false);
+        setIsMuted(false);
+        setIsVideoOff(true);
+        setIsScreenSharing(false);
+        
+        // Show notification to user
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Call Declined', {
+            body: `${data.userName || 'User'} declined the call`,
+            icon: '/logo.svg'
+          });
+        }
       }
     };
 
@@ -351,13 +405,36 @@ export function CallProvider({ children }) {
       }
     };
 
-    // Handle offer from the receiver (when we are the initiator)
+    // Handle offer from the receiver (when we are the initiator) or renegotiation
     const handleOffer = async (data) => {
       console.log('Received offer from:', data.fromUserId);
       const call = activeCallRef.current;
       
       if (call?.id === data.callId) {
-        // Receiving an offer means the call was accepted - stop ringtone and start timer
+        // Check if this is a renegotiation (connection already exists and is stable)
+        const existingPc = webrtcService.getPeerConnection(data.fromUserId);
+        const isRenegotiation = existingPc && 
+          (existingPc.connectionState === 'connected' || existingPc.signalingState === 'stable');
+        
+        console.log('Offer handling - isRenegotiation:', isRenegotiation, 
+          'connectionState:', existingPc?.connectionState, 
+          'signalingState:', existingPc?.signalingState);
+        
+        if (isRenegotiation) {
+          console.log('This is a renegotiation offer');
+          try {
+            const answer = await webrtcService.handleRenegotiationOffer(data.fromUserId, data.offer);
+            if (answer) {
+              console.log('Sending renegotiation answer to:', data.fromUserId);
+              await websocketService.sendAnswer(data.callId, data.fromUserId, answer);
+            }
+          } catch (err) {
+            console.error('Failed to handle renegotiation offer:', err);
+          }
+          return;
+        }
+        
+        // Initial offer - receiving an offer means the call was accepted
         // This is a fallback in case call:accepted event doesn't arrive
         if (call.status === 'ringing' || call.isInitiator) {
           console.log('Offer received - call is now active, stopping ringtone');
@@ -405,15 +482,30 @@ export function CallProvider({ children }) {
       }
     };
 
-    // Handle answer from the initiator (when we are the receiver)
+    // Handle answer from the initiator (when we are the receiver) or renegotiation answer
     const handleAnswer = async (data) => {
       console.log('Received answer from:', data.fromUserId);
       const call = activeCallRef.current;
       
       if (call?.id === data.callId) {
         try {
-          await webrtcService.handleAnswer(data.fromUserId, data.answer);
-          console.log('Answer processed successfully');
+          const pc = webrtcService.getPeerConnection(data.fromUserId);
+          
+          if (!pc) {
+            console.error('No peer connection found for:', data.fromUserId);
+            return;
+          }
+          
+          console.log('Peer connection signaling state:', pc.signalingState);
+          
+          // If we're in have-local-offer state, we can set the remote description
+          if (pc.signalingState === 'have-local-offer') {
+            console.log('Setting remote description (answer)');
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            console.log('Answer processed successfully, new signaling state:', pc.signalingState);
+          } else {
+            console.warn('Unexpected signaling state for answer:', pc.signalingState);
+          }
         } catch (err) {
           console.error('Failed to handle answer:', err);
         }
@@ -446,6 +538,10 @@ export function CallProvider({ children }) {
               : p
           )
         }));
+        
+        // Force re-render of remote streams when media state changes
+        // This helps update the UI when remote user toggles video
+        setRemoteStreams(prev => ({ ...prev }));
       }
     };
 
@@ -454,10 +550,12 @@ export function CallProvider({ children }) {
       console.log('Remote stream received from:', userId);
       console.log('Stream tracks:', stream?.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`));
       
-      // Verify stream has audio tracks
       const audioTracks = stream?.getAudioTracks();
+      const videoTracks = stream?.getVideoTracks();
       console.log('Audio tracks:', audioTracks?.length, audioTracks?.map(t => `enabled:${t.enabled}, muted:${t.muted}`));
+      console.log('Video tracks:', videoTracks?.length, videoTracks?.map(t => `enabled:${t.enabled}, muted:${t.muted}`));
       
+      // Update remote streams state
       setRemoteStreams(prev => {
         const updated = { ...prev, [userId]: stream };
         console.log('Updated remote streams:', Object.keys(updated));

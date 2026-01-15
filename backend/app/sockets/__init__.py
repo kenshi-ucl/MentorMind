@@ -314,16 +314,34 @@ def handle_call_decline(data):
     
     call_id = data.get('callId')
     
+    logger.info(f"Call decline: user={user.id}, call={call_id}")
+    
     success, error = call_service.decline_call(call_id, user.id)
     
     if error:
+        logger.error(f"Call decline error: {error}")
         return {'error': error}
     
-    # Notify other participants
+    # Get the call to find the initiator
+    from app.models.call import Call
+    call = Call.query.get(call_id)
+    
+    # Notify other participants in the call room
+    logger.info(f"Sending call:declined to room call:{call_id}")
     emit('call:declined', {
         'callId': call_id,
-        'userId': user.id
+        'userId': user.id,
+        'userName': user.name
     }, room=f"call:{call_id}")
+    
+    # Also send directly to the initiator's user room to ensure delivery
+    if call and call.initiator_id != user.id:
+        logger.info(f"Also sending call:declined directly to initiator user:{call.initiator_id}")
+        emit('call:declined', {
+            'callId': call_id,
+            'userId': user.id,
+            'userName': user.name
+        }, room=f"user:{call.initiator_id}")
     
     return {'success': True}
 

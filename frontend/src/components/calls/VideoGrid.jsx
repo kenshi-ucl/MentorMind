@@ -1,33 +1,133 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { MicOff, VideoOff } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { cn } from '../../lib/utils';
 
 function VideoTile({ stream, participant, isLocal, isVideoOff, isMuted }) {
   const videoRef = useRef(null);
+  const [hasEnabledVideoTrack, setHasEnabledVideoTrack] = useState(false);
+  const [trackCount, setTrackCount] = useState(0);
   
+  // Check if stream has enabled video tracks
+  const checkVideoTracks = useCallback(() => {
+    if (!stream) {
+      setHasEnabledVideoTrack(false);
+      setTrackCount(0);
+      return;
+    }
+    const videoTracks = stream.getVideoTracks();
+    const hasVideo = videoTracks.length > 0 && videoTracks.some(t => t.enabled && t.readyState === 'live');
+    console.log(`VideoTile [${isLocal ? 'local' : participant?.userName}] checkVideoTracks:`, hasVideo, 
+      'tracks:', videoTracks.map(t => `enabled:${t.enabled},state:${t.readyState}`));
+    setHasEnabledVideoTrack(hasVideo);
+    setTrackCount(stream.getTracks().length);
+  }, [stream, isLocal, participant?.userName]);
+  
+  // Set up stream and track listeners
   useEffect(() => {
-    if (videoRef.current && stream) {
+    if (!stream) {
+      setHasEnabledVideoTrack(false);
+      setTrackCount(0);
+      return;
+    }
+    
+    // Assign stream to video element
+    if (videoRef.current) {
       videoRef.current.srcObject = stream;
     }
-  }, [stream]);
+    
+    // Initial check
+    checkVideoTracks();
+    
+    // Listen for track additions/removals on the stream
+    const handleTrackChange = () => {
+      console.log(`VideoTile [${isLocal ? 'local' : participant?.userName}] track change event`);
+      checkVideoTracks();
+      // Re-assign stream to video element to pick up new tracks
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+        videoRef.current.srcObject = stream;
+      }
+    };
+    
+    stream.addEventListener('addtrack', handleTrackChange);
+    stream.addEventListener('removetrack', handleTrackChange);
+    
+    // Listen for track enabled/disabled changes on current video tracks
+    const videoTracks = stream.getVideoTracks();
+    const trackListeners = [];
+    
+    videoTracks.forEach(track => {
+      const listener = () => {
+        console.log(`VideoTile [${isLocal ? 'local' : participant?.userName}] track event:`, track.enabled, track.readyState);
+        checkVideoTracks();
+      };
+      track.addEventListener('mute', listener);
+      track.addEventListener('unmute', listener);
+      track.addEventListener('ended', listener);
+      trackListeners.push({ track, listener });
+    });
+    
+    return () => {
+      stream.removeEventListener('addtrack', handleTrackChange);
+      stream.removeEventListener('removetrack', handleTrackChange);
+      trackListeners.forEach(({ track, listener }) => {
+        track.removeEventListener('mute', listener);
+        track.removeEventListener('unmute', listener);
+        track.removeEventListener('ended', listener);
+      });
+    };
+  }, [stream, checkVideoTracks, isLocal, participant?.userName]);
   
-  const showVideo = stream && !isVideoOff;
+  // Re-check when isVideoOff prop changes (for local video toggle)
+  useEffect(() => {
+    checkVideoTracks();
+  }, [isVideoOff, checkVideoTracks]);
+  
+  // Re-check periodically to catch track changes that might not trigger events
+  // This is a fallback for when tracks are merged into the stream
+  useEffect(() => {
+    if (!stream) return;
+    
+    const interval = setInterval(() => {
+      const currentTrackCount = stream.getTracks().length;
+      if (currentTrackCount !== trackCount) {
+        console.log(`VideoTile [${isLocal ? 'local' : participant?.userName}] track count changed: ${trackCount} -> ${currentTrackCount}`);
+        checkVideoTracks();
+        // Re-assign stream to video element
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+          videoRef.current.srcObject = stream;
+        }
+      }
+    }, 200); // Check every 200ms for faster updates
+    
+    return () => clearInterval(interval);
+  }, [stream, trackCount, checkVideoTracks, isLocal, participant?.userName]);
+  
+  // For local video, we show video if we have enabled tracks AND isVideoOff is false
+  // For remote video, we show video if we have enabled tracks AND participant's isVideoOff is false
+  const showVideo = stream && hasEnabledVideoTrack && !isVideoOff;
+  
+  console.log(`VideoTile [${isLocal ? 'local' : participant?.userName}] render: showVideo=${showVideo}, hasEnabledVideoTrack=${hasEnabledVideoTrack}, isVideoOff=${isVideoOff}`);
   
   return (
     <div className="relative bg-gray-800 rounded-lg overflow-hidden aspect-video">
-      {showVideo ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={isLocal}
-          className={cn(
-            "w-full h-full object-cover",
-            isLocal && "transform scale-x-[-1]"
-          )}
-        />
-      ) : (
+      {/* Always render video element to maintain ref, but hide when not showing */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={isLocal}
+        className={cn(
+          "w-full h-full object-cover",
+          isLocal && "transform scale-x-[-1]",
+          !showVideo && "hidden"
+        )}
+      />
+      
+      {/* Show avatar when video is off */}
+      {!showVideo && (
         <div className="w-full h-full flex items-center justify-center">
           <Avatar 
             name={participant?.userName || 'You'} 
@@ -61,9 +161,22 @@ function VideoTile({ stream, participant, isLocal, isVideoOff, isMuted }) {
   );
 }
 
-export function VideoGrid({ localStream, remoteStreams, participants, isVideoOff }) {
-  const remoteParticipants = participants?.filter(p => p.status === 'joined') || [];
-  const totalParticipants = remoteParticipants.length + 1; // +1 for local
+export function VideoGrid({ localStream, remoteStreams, participants, currentUserId, isVideoOff }) {
+  // Filter out the current user from participants
+  // Show remote participants if we have a stream for them OR if they're in the call
+  const allRemoteParticipants = participants?.filter(p => p.userId !== currentUserId) || [];
+  
+  // Get participants that we actually have streams for
+  const remoteParticipantsWithStreams = allRemoteParticipants.filter(p => 
+    remoteStreams[p.userId]
+  );
+  
+  const totalParticipants = remoteParticipantsWithStreams.length + 1; // +1 for local
+  
+  console.log('VideoGrid - currentUserId:', currentUserId);
+  console.log('VideoGrid - all participants:', participants?.map(p => ({ userId: p.userId, userName: p.userName, status: p.status })));
+  console.log('VideoGrid - remote participants with streams:', remoteParticipantsWithStreams.map(p => ({ userId: p.userId, userName: p.userName })));
+  console.log('VideoGrid - remoteStreams keys:', Object.keys(remoteStreams));
   
   // Determine grid layout
   const gridCols = totalParticipants <= 1 ? 1 
@@ -89,7 +202,7 @@ export function VideoGrid({ localStream, remoteStreams, participants, isVideoOff
       />
       
       {/* Remote videos */}
-      {remoteParticipants.map(participant => (
+      {remoteParticipantsWithStreams.map(participant => (
         <VideoTile
           key={participant.userId}
           stream={remoteStreams[participant.userId]}
