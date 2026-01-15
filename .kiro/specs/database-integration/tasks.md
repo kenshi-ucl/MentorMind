@@ -72,21 +72,21 @@ This implementation plan integrates SQLite database into MentorMind to replace i
     - **Property 3: Session Lifecycle Validity**
     - **Validates: Requirements 3.1, 3.3, 3.4**
 
-- [ ] 5. Update auth routes
-  - [ ] 5.1 Update auth routes to use new AuthService
+- [x] 5. Update auth routes
+  - [x] 5.1 Update auth routes to use new AuthService
     - Update `backend/app/routes/auth.py`
     - Update register endpoint
     - Update login endpoint
     - Update anonymous endpoint
     - Add logout endpoint
     - _Requirements: 2.1, 2.2, 2.3, 3.1_
-  - [ ] 5.2 Create authentication decorator
+  - [x] 5.2 Create authentication decorator
     - Create `require_auth` decorator for protected routes
     - Validate token from Authorization header
     - Return 401 for invalid/expired tokens
     - _Requirements: 3.3, 3.4_
 
-- [ ] 6. Checkpoint - Verify authentication
+- [x] 6. Checkpoint - Verify authentication
   - Test register, login, anonymous flows
   - Verify 401 errors are fixed
   - Ensure all tests pass

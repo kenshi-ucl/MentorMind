@@ -17,7 +17,7 @@ def register():
     
     Returns:
         - 201: User created successfully with user data and token
-        - 400: Missing required fields
+        - 400: Missing required fields or validation error
         - 409: Email already exists
     """
     data = request.get_json()
@@ -37,19 +37,20 @@ def register():
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     
-    user, error = auth_service.register(email, password, name)
+    # Use the new database-backed register method
+    result, error = auth_service.register(email, password, name)
     
     if error:
         if "already exists" in error:
             return jsonify({'error': error}), 409
         return jsonify({'error': error}), 400
     
-    # Create session token
-    token = auth_service.create_session(user.id)
+    user = result['user']
+    session = result['session']
     
     return jsonify({
         'user': user.to_dict(),
-        'token': token
+        'token': session.token
     }), 201
 
 
@@ -78,17 +79,18 @@ def login():
     if not email or not password:
         return jsonify({'error': 'Email and password are required'}), 400
     
-    user, error = auth_service.login(email, password)
+    # Use the new database-backed login method
+    result, error = auth_service.login(email, password)
     
     if error:
         return jsonify({'error': error}), 401
     
-    # Create session token
-    token = auth_service.create_session(user.id)
+    user = result['user']
+    session = result['session']
     
     return jsonify({
         'user': user.to_dict(),
-        'token': token
+        'token': session.token
     }), 200
 
 
@@ -98,12 +100,16 @@ def anonymous_session():
     Create an anonymous user session.
     
     Returns:
-        - 200: Anonymous session created with session ID
+        - 200: Anonymous session created with session ID and user data
     """
-    session_id, user = auth_service.create_anonymous_session()
+    # Use the new database-backed create_anonymous method
+    result = auth_service.create_anonymous()
+    user = result['user']
+    session = result['session']
     
     return jsonify({
-        'sessionId': session_id,
+        'sessionId': session.token,
+        'token': session.token,
         'isAnonymous': True,
         'user': user.to_dict()
     }), 200
@@ -128,7 +134,8 @@ def logout():
     
     token = auth_header.split(' ')[1]
     
-    if auth_service.invalidate_session(token):
+    # Use the new database-backed logout method
+    if auth_service.logout(token):
         return jsonify({'message': 'Logged out successfully'}), 200
     
     return jsonify({'error': 'No valid session'}), 401
@@ -144,15 +151,17 @@ def get_current_user():
     
     Returns:
         - 200: User data
-        - 401: Not authenticated
+        - 401: Not authenticated or session expired
     """
     auth_header = request.headers.get('Authorization')
     
     if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'error': 'Not authenticated'}), 401
+        return jsonify({'error': 'Authorization required'}), 401
     
     token = auth_header.split(' ')[1]
-    user = auth_service.get_user_by_session(token)
+    
+    # Use the new database-backed validate_token method
+    user = auth_service.validate_token(token)
     
     if not user:
         return jsonify({'error': 'Session expired, please login again'}), 401
