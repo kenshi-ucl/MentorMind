@@ -49,29 +49,34 @@ class ModelConfig:
 class NebiusConfig:
     """Configuration for Nebius AI integration."""
     api_key: Optional[str]
-    base_url: str = "https://api.tokenfactory.nebius.com/v1/"
+    base_url: str = "https://api.studio.nebius.com/v1/"
     tutor_model: ModelConfig = field(default_factory=lambda: ModelConfig(
         model_id="openai/gpt-oss-120b",
         temperature=0.7,
-        max_tokens=2048
+        max_tokens=2048,
+        fallback_model_id="deepseek-ai/DeepSeek-V3"
     ))
     quiz_model: ModelConfig = field(default_factory=lambda: ModelConfig(
         model_id="openai/gpt-oss-120b",
         temperature=0.3,
-        max_tokens=4096
+        max_tokens=4096,
+        fallback_model_id="deepseek-ai/DeepSeek-V3"
     ))
     content_model: ModelConfig = field(default_factory=lambda: ModelConfig(
         model_id="openai/gpt-oss-120b",
         temperature=0.5,
-        max_tokens=4096
+        max_tokens=4096,
+        fallback_model_id="deepseek-ai/DeepSeek-V3"
     ))
     vision_model: ModelConfig = field(default_factory=lambda: ModelConfig(
         model_id="google/gemma-3-27b-it-fast",
         temperature=0.5,
-        max_tokens=2048
+        max_tokens=2048,
+        fallback_model_id="google/gemma-3-27b-it"
     ))
     embedding_model: ModelConfig = field(default_factory=lambda: ModelConfig(
-        model_id="intfloat/e5-mistral-7b-instruct"
+        model_id="intfloat/e5-mistral-7b-instruct",
+        fallback_model_id="BAAI/bge-en-icl"
     ))
     retry_attempts: int = 3
     retry_delay: float = 1.0
@@ -105,7 +110,7 @@ class NebiusConfig:
         
         return cls(
             api_key=api_key,
-            base_url=nebius_data.get("base_url", "https://api.tokenfactory.nebius.com/v1/"),
+            base_url=nebius_data.get("base_url", "https://api.studio.nebius.com/v1/"),
             tutor_model=ModelConfig.from_dict(models_data.get("tutor", {})) if models_data.get("tutor") else cls._default_tutor_model(),
             quiz_model=ModelConfig.from_dict(models_data.get("quiz", {})) if models_data.get("quiz") else cls._default_quiz_model(),
             content_model=ModelConfig.from_dict(models_data.get("content", {})) if models_data.get("content") else cls._default_content_model(),

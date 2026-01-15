@@ -14,6 +14,20 @@ from app.services.video_processor import VideoProcessor, VideoFrame
 logger = logging.getLogger(__name__)
 
 
+def _load_nebius_config() -> NebiusConfig:
+    """Load Nebius config from JSON file, falling back to defaults."""
+    project_root = Path(__file__).parent.parent.parent
+    config_path = project_root / "config" / "nebius.json"
+    
+    if config_path.exists():
+        try:
+            return NebiusConfig.from_file(str(config_path))
+        except Exception as e:
+            logger.warning(f"Failed to load nebius.json: {e}. Using defaults.")
+    
+    return NebiusConfig.default()
+
+
 class AgentOrchestrator:
     """Service for orchestrating AI agent operations with Nebius AI integration."""
     
@@ -41,8 +55,8 @@ class AgentOrchestrator:
         self._agents: dict[str, AgentPrompt] = {}
         self._loaded = False
         
-        # Initialize Nebius client
-        self._config = config or NebiusConfig.default()
+        # Initialize Nebius client - load config from file
+        self._config = config or _load_nebius_config()
         self._nebius_client = nebius_client or NebiusClient(config=self._config)
         self._retry_handler = RetryHandler(
             max_attempts=self._config.retry_attempts,
@@ -113,7 +127,8 @@ class AgentOrchestrator:
         self,
         message: str,
         context: Optional[list[str]] = None,
-        stream: bool = False
+        stream: bool = False,
+        conversation_history: Optional[list[dict]] = None
     ) -> Union[str, Generator[str, None, None]]:
         """
         Process a chat message through the TutorAgent with real AI.
@@ -122,6 +137,7 @@ class AgentOrchestrator:
             message: The user's message/question.
             context: Optional list of content context strings.
             stream: Whether to stream the response.
+            conversation_history: Optional list of previous messages for context.
             
         Returns:
             The agent's response string, or a generator for streaming.
@@ -138,7 +154,7 @@ class AgentOrchestrator:
             return error_msg
         
         # Build messages array for the API call
-        messages = self._build_chat_messages(tutor, message, context)
+        messages = self._build_chat_messages(tutor, message, context, conversation_history)
         
         try:
             # Use retry handler for resilience
@@ -180,7 +196,8 @@ class AgentOrchestrator:
         self,
         agent: AgentPrompt,
         user_message: str,
-        context: Optional[list[str]] = None
+        context: Optional[list[str]] = None,
+        conversation_history: Optional[list[dict]] = None
     ) -> list[dict]:
         """
         Build the messages array for the chat API call.
@@ -189,6 +206,7 @@ class AgentOrchestrator:
             agent: The agent prompt configuration.
             user_message: The user's message.
             context: Optional content context.
+            conversation_history: Optional list of previous messages.
             
         Returns:
             List of message dictionaries with 'role' and 'content'.
@@ -217,7 +235,15 @@ class AgentOrchestrator:
                 "content": context_text
             })
         
-        # User message
+        # Add conversation history for AI memory
+        if conversation_history:
+            for msg in conversation_history:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+        
+        # Add current user message
         messages.append({
             "role": "user",
             "content": user_message

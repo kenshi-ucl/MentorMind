@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useAuth } from '../../context/AuthContext';
@@ -12,13 +13,19 @@ const API_BASE = 'http://localhost:5000/api';
  * 
  * Requirements: 4.1, 4.3, 4.6, 2.5
  */
-export function ChatInterface({ contentContext = [], enableStreaming = true }) {
+export function ChatInterface({ 
+  contentContext = [], 
+  enableStreaming = true,
+  conversationId: initialConversationId = null,
+  onConversationChange = null
+}) {
   const { token } = useAuth();
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState(null);
+  const [conversationId, setConversationId] = useState(initialConversationId);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -33,6 +40,22 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
     inputRef.current?.focus();
   }, []);
 
+  // Load conversation when conversationId changes
+  useEffect(() => {
+    if (initialConversationId !== conversationId) {
+      setConversationId(initialConversationId);
+    }
+  }, [initialConversationId]);
+
+  // Load messages when conversation changes
+  useEffect(() => {
+    if (conversationId && token) {
+      loadConversation(conversationId);
+    } else if (!conversationId) {
+      setMessages([]);
+    }
+  }, [conversationId, token]);
+
   // Cleanup abort controller on unmount
   useEffect(() => {
     return () => {
@@ -41,6 +64,34 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
       }
     };
   }, []);
+
+  /**
+   * Load a conversation's messages from the backend
+   */
+  const loadConversation = async (convId) => {
+    if (!token) return;
+    
+    try {
+      const response = await fetch(`${API_BASE}/chat/conversations/${convId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const loadedMessages = (data.messages || []).map(msg => ({
+          id: msg.messageId || `msg-${msg.id}`,
+          role: msg.role,
+          content: msg.content,
+          timestamp: new Date(msg.createdAt || msg.timestamp)
+        }));
+        setMessages(loadedMessages);
+      }
+    } catch (err) {
+      console.error('Failed to load conversation:', err);
+    }
+  };
 
   /**
    * Send a message to the TutorAgent API with streaming support
@@ -105,6 +156,7 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
         headers,
         body: JSON.stringify({
           message: content,
+          conversationId: conversationId,
           contentContext: contentContext,
           stream: true,
         }),
@@ -135,7 +187,6 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
         
         for (const line of lines) {
           if (line.startsWith('event: ')) {
-            const eventType = line.slice(7).trim();
             continue;
           }
           
@@ -151,7 +202,13 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
               }
               
               if (parsed.messageId) {
-                // Done event - update message with final ID
+                // Done event - update conversation ID if new
+                if (parsed.conversationId && !conversationId) {
+                  setConversationId(parsed.conversationId);
+                  if (onConversationChange) {
+                    onConversationChange(parsed.conversationId);
+                  }
+                }
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantMessageId
@@ -162,7 +219,6 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
               }
             } catch (parseError) {
               // Not JSON, treat as text chunk
-              // Unescape the SSE data
               const chunk = data
                 .replace(/\\n/g, '\n')
                 .replace(/\\r/g, '\r')
@@ -171,7 +227,6 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
               
               fullContent += chunk;
               
-              // Update the assistant message with new content
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMessageId
@@ -195,12 +250,10 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
 
     } catch (err) {
       if (err.name === 'AbortError') {
-        // Request was cancelled, don't show error
         return;
       }
       
       setError(err.message || 'Failed to send message. Please try again.');
-      // Remove the incomplete assistant message on error
       setMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
     } finally {
       setIsLoading(false);
@@ -226,6 +279,7 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
         headers,
         body: JSON.stringify({
           message: content,
+          conversationId: conversationId,
           contentContext: contentContext,
           stream: false,
         }),
@@ -236,6 +290,14 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to send message');
+      }
+
+      // Update conversation ID if new
+      if (data.conversationId && !conversationId) {
+        setConversationId(data.conversationId);
+        if (onConversationChange) {
+          onConversationChange(data.conversationId);
+        }
       }
 
       // Add assistant response to conversation
@@ -299,7 +361,7 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
         </p>
       </div>
 
-      {/* Messages Container - Fixed height with scroll */}
+      {/* Messages Container */}
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center h-full text-center">
@@ -335,10 +397,8 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
           />
         ))}
 
-        {/* Loading/Streaming Indicator */}
         {isLoading && !isStreaming && <LoadingIndicator />}
 
-        {/* Error Message */}
         {error && (
           <div className="flex justify-center">
             <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-2 rounded-lg text-sm">
@@ -370,38 +430,13 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
             aria-label="Send message"
           >
             {isLoading ? (
-              <svg
-                className="w-5 h-5 animate-spin"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
+              <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
             ) : (
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                />
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
             )}
           </Button>
@@ -410,6 +445,7 @@ export function ChatInterface({ contentContext = [], enableStreaming = true }) {
     </div>
   );
 }
+
 
 /**
  * Individual message bubble component
@@ -430,12 +466,9 @@ function MessageBubble({ message, formatTime }) {
             : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
         }`}
       >
-        {/* Role Label */}
         <div
           className={`text-xs font-medium mb-1 ${
-            isUser
-              ? 'text-indigo-200'
-              : 'text-gray-500 dark:text-gray-400'
+            isUser ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-400'
           }`}
         >
           {isUser ? 'You' : 'TutorAgent'}
@@ -451,25 +484,81 @@ function MessageBubble({ message, formatTime }) {
           )}
         </div>
 
-        {/* Message Content */}
-        <div className="whitespace-pre-wrap break-words">
-          {message.content}
+        <div className="break-words">
+          {isUser ? (
+            <div className="whitespace-pre-wrap">{message.content}</div>
+          ) : (
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown
+                components={{
+                  h1: ({ children }) => (
+                    <h2 className="text-lg font-bold mt-4 mb-2 text-gray-900 dark:text-white border-b border-gray-300 dark:border-gray-600 pb-1">{children}</h2>
+                  ),
+                  h2: ({ children }) => (
+                    <h3 className="text-base font-bold mt-3 mb-2 text-gray-900 dark:text-white">{children}</h3>
+                  ),
+                  h3: ({ children }) => (
+                    <h4 className="text-sm font-semibold mt-2 mb-1 text-gray-900 dark:text-white">{children}</h4>
+                  ),
+                  p: ({ children }) => (
+                    <p className="mb-2 text-gray-800 dark:text-gray-200 leading-relaxed">{children}</p>
+                  ),
+                  ul: ({ children }) => (
+                    <ul className="list-disc list-inside mb-2 space-y-1 text-gray-800 dark:text-gray-200">{children}</ul>
+                  ),
+                  ol: ({ children }) => (
+                    <ol className="list-decimal list-inside mb-2 space-y-1 text-gray-800 dark:text-gray-200">{children}</ol>
+                  ),
+                  li: ({ children }) => (
+                    <li className="text-gray-800 dark:text-gray-200">{children}</li>
+                  ),
+                  strong: ({ children }) => (
+                    <strong className="font-semibold text-gray-900 dark:text-white">{children}</strong>
+                  ),
+                  em: ({ children }) => (
+                    <em className="italic text-gray-800 dark:text-gray-200">{children}</em>
+                  ),
+                  a: ({ href, children }) => (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:underline">{children}</a>
+                  ),
+                  code: ({ inline, children }) => {
+                    if (inline) {
+                      return <code className="bg-gray-300 dark:bg-gray-600 text-gray-900 dark:text-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>;
+                    }
+                    return (
+                      <pre className="bg-gray-800 dark:bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto my-2 border border-gray-300 dark:border-gray-600">
+                        <code className="text-sm font-mono text-gray-100">{children}</code>
+                      </pre>
+                    );
+                  },
+                  pre: ({ children }) => <>{children}</>,
+                  table: ({ children }) => (
+                    <div className="my-3 overflow-x-auto">
+                      <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600">{children}</table>
+                    </div>
+                  ),
+                  thead: ({ children }) => <thead className="bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100">{children}</thead>,
+                  tbody: ({ children }) => <tbody className="text-gray-800 dark:text-gray-200">{children}</tbody>,
+                  tr: ({ children }) => <tr className="border-b border-gray-300 dark:border-gray-600">{children}</tr>,
+                  th: ({ children }) => <th className="px-3 py-2 text-left text-sm font-semibold text-gray-900 dark:text-gray-100">{children}</th>,
+                  td: ({ children }) => <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{children}</td>,
+                  blockquote: ({ children }) => (
+                    <blockquote className="border-l-4 border-indigo-500 pl-3 my-2 italic text-gray-700 dark:text-gray-300">{children}</blockquote>
+                  ),
+                  hr: () => <hr className="my-3 border-gray-300 dark:border-gray-600" />,
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          )}
           {isStreaming && !message.content && (
-            <span className="text-gray-400 dark:text-gray-500 italic">
-              Thinking...
-            </span>
+            <span className="text-gray-400 dark:text-gray-500 italic">Thinking...</span>
           )}
         </div>
 
-        {/* Timestamp */}
         {!isStreaming && (
-          <div
-            className={`text-xs mt-1 ${
-              isUser
-                ? 'text-indigo-200'
-                : 'text-gray-400 dark:text-gray-500'
-            }`}
-          >
+          <div className={`text-xs mt-1 ${isUser ? 'text-indigo-200' : 'text-gray-400 dark:text-gray-500'}`}>
             {formatTime(message.timestamp)}
           </div>
         )}
@@ -479,7 +568,7 @@ function MessageBubble({ message, formatTime }) {
 }
 
 /**
- * Loading indicator component shown while waiting for TutorAgent response
+ * Loading indicator component
  */
 function LoadingIndicator() {
   return (
@@ -487,22 +576,11 @@ function LoadingIndicator() {
       <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-4 py-3">
         <div className="flex items-center space-x-2">
           <div className="flex space-x-1">
-            <div
-              className="w-2 h-2 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-bounce"
-              style={{ animationDelay: '0ms' }}
-            />
-            <div
-              className="w-2 h-2 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-bounce"
-              style={{ animationDelay: '150ms' }}
-            />
-            <div
-              className="w-2 h-2 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-bounce"
-              style={{ animationDelay: '300ms' }}
-            />
+            <div className="w-2 h-2 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <div className="w-2 h-2 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <div className="w-2 h-2 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
           </div>
-          <span className="text-sm text-gray-500 dark:text-gray-400">
-            TutorAgent is thinking...
-          </span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">TutorAgent is thinking...</span>
         </div>
       </div>
     </div>

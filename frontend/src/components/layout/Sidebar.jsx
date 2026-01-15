@@ -1,10 +1,11 @@
-import { LayoutDashboard, BookOpen, Dumbbell, TrendingUp, Settings } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Dumbbell, TrendingUp, History, Settings } from 'lucide-react'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
   { icon: BookOpen, label: 'Lessons', path: '/lessons' },
   { icon: Dumbbell, label: 'Practice', path: '/practice' },
   { icon: TrendingUp, label: 'Progress', path: '/progress' },
+  { icon: History, label: 'History', path: '/history' },
   { icon: Settings, label: 'Settings', path: '/settings' },
 ]
 

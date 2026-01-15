@@ -68,7 +68,7 @@ def init_db(app):
     
     # Import models before creating tables so SQLAlchemy knows about them
     # This must happen after db.init_app() but before db.create_all()
-    from app.models import User, Session, Content, QuizResult
+    from app.models import User, Session, Content, QuizResult, Conversation, Message
     
     # Create all tables
     with app.app_context():

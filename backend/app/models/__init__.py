@@ -15,6 +15,7 @@ from app.models.content import (
 from app.models.quiz_result import QuizResult
 from app.models.agent_prompt import AgentPrompt
 from app.models.progress import UserProgress, TopicProgress, ProgressEntry
+from app.models.conversation import Conversation, Message
 
 __all__ = [
     # SQLAlchemy ORM Models
@@ -22,6 +23,8 @@ __all__ = [
     "Session",
     "Content",
     "QuizResult",
+    "Conversation",
+    "Message",
     # Legacy models (for compatibility)
     "AgentPrompt",
     "UserProgress",

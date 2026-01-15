@@ -28,6 +28,7 @@ export function QuizComponent({ topic = null, contentId = null, questionCount = 
     selectedAnswer: null,
     showFeedback: false,
     results: null,
+    questionResults: [], // Track results for each question as we go
     error: null,
   });
 
@@ -82,6 +83,7 @@ export function QuizComponent({ topic = null, contentId = null, questionCount = 
         answers: new Array(data.questions.length).fill(null),
         selectedAnswer: null,
         showFeedback: false,
+        questionResults: [], // Reset question results
         error: null,
       }));
     } catch (err) {
@@ -106,7 +108,7 @@ export function QuizComponent({ topic = null, contentId = null, questionCount = 
   };
 
   /**
-   * Confirm the selected answer and show feedback
+   * Confirm the selected answer and move to next question (no immediate feedback)
    */
   const confirmAnswer = () => {
     if (quizState.selectedAnswer === null) return;
@@ -114,37 +116,31 @@ export function QuizComponent({ topic = null, contentId = null, questionCount = 
     const newAnswers = [...quizState.answers];
     newAnswers[quizState.currentIndex] = quizState.selectedAnswer;
 
-    setQuizState(prev => ({
-      ...prev,
-      answers: newAnswers,
-      showFeedback: true,
-    }));
-  };
-
-  /**
-   * Move to the next question or submit quiz
-   */
-  const nextQuestion = async () => {
-    const { currentIndex, questions, answers } = quizState;
+    const { currentIndex, questions } = quizState;
 
     if (currentIndex < questions.length - 1) {
-      // Move to next question
+      // Move to next question immediately
       setQuizState(prev => ({
         ...prev,
+        answers: newAnswers,
         currentIndex: prev.currentIndex + 1,
         selectedAnswer: prev.answers[prev.currentIndex + 1],
-        showFeedback: false,
       }));
     } else {
-      // Submit quiz
-      await submitQuiz();
+      // Last question - store answer and submit
+      setQuizState(prev => ({
+        ...prev,
+        answers: newAnswers,
+      }));
+      // Submit quiz with the new answers
+      submitQuizWithAnswers(newAnswers);
     }
   };
 
   /**
-   * Submit the quiz and get results
+   * Submit the quiz with provided answers
    */
-  const submitQuiz = async () => {
+  const submitQuizWithAnswers = async (finalAnswers) => {
     setQuizState(prev => ({
       ...prev,
       status: 'loading',
@@ -163,7 +159,7 @@ export function QuizComponent({ topic = null, contentId = null, questionCount = 
         headers,
         body: JSON.stringify({
           quizId: quizState.quizId,
-          answers: quizState.answers,
+          answers: finalAnswers,
         }),
       });
 
@@ -193,6 +189,19 @@ export function QuizComponent({ topic = null, contentId = null, questionCount = 
   };
 
   /**
+   * Move to the previous question
+   */
+  const prevQuestion = () => {
+    if (quizState.currentIndex > 0) {
+      setQuizState(prev => ({
+        ...prev,
+        currentIndex: prev.currentIndex - 1,
+        selectedAnswer: prev.answers[prev.currentIndex - 1],
+      }));
+    }
+  };
+
+  /**
    * Reset quiz to start over
    */
   const resetQuiz = () => {
@@ -205,6 +214,7 @@ export function QuizComponent({ topic = null, contentId = null, questionCount = 
       selectedAnswer: null,
       showFeedback: false,
       results: null,
+      questionResults: [],
       error: null,
     });
   };
@@ -338,37 +348,33 @@ export function QuizComponent({ topic = null, contentId = null, questionCount = 
               index={index}
               option={option}
               isSelected={selectedAnswer === index}
-              showFeedback={showFeedback}
-              isCorrect={showFeedback && results?.results?.[currentIndex]?.correctAnswer === index}
+              showFeedback={false}
+              isCorrect={false}
               onClick={() => selectAnswer(index)}
-              disabled={showFeedback}
+              disabled={false}
             />
           ))}
         </div>
 
-        {/* Feedback section */}
-        {showFeedback && results?.results?.[currentIndex] && (
-          <FeedbackSection result={results.results[currentIndex]} />
-        )}
+        {/* No per-question feedback - results shown at end */}
       </CardContent>
       <CardFooter className="justify-between">
-        <span className="text-sm text-gray-500 dark:text-gray-400">
-          {quizState.answers.filter(a => a !== null).length} of {questions.length} answered
-        </span>
-        <div className="space-x-2">
-          {!showFeedback ? (
-            <Button
-              onClick={confirmAnswer}
-              disabled={selectedAnswer === null}
-            >
-              Confirm Answer
-            </Button>
-          ) : (
-            <Button onClick={nextQuestion}>
-              {currentIndex < questions.length - 1 ? 'Next Question' : 'See Results'}
+        <div className="flex items-center gap-2">
+          {currentIndex > 0 && (
+            <Button variant="outline" onClick={prevQuestion}>
+              Previous
             </Button>
           )}
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {quizState.answers.filter(a => a !== null).length} of {questions.length} answered
+          </span>
         </div>
+        <Button
+          onClick={confirmAnswer}
+          disabled={selectedAnswer === null}
+        >
+          {currentIndex < questions.length - 1 ? 'Next Question' : 'Submit Quiz'}
+        </Button>
       </CardFooter>
     </Card>
   );

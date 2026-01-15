@@ -14,15 +14,38 @@ const API_BASE = 'http://localhost:5000/api';
  * - Chat with TutorAgent
  * - Upload and process content
  * - Content-aware chat responses
+ * - Load existing conversations from History
+ * 
+ * Note: Chat history is now in a separate History page accessible from sidebar.
  * 
  * Requirements: 4.1, 4.5, 5.1, 10.3
  */
-export function LessonsView() {
+export function LessonsView({ conversationId: initialConversationId = null, onConversationChange = null }) {
   const { token } = useAuth();
   const [uploadedContent, setUploadedContent] = useState([]);
   const [contentContext, setContentContext] = useState([]);
   const [activeTab, setActiveTab] = useState('chat');
   const [reprocessingId, setReprocessingId] = useState(null);
+  const [currentConversationId, setCurrentConversationId] = useState(initialConversationId);
+
+  // Update conversation ID when prop changes (e.g., from History navigation)
+  useEffect(() => {
+    if (initialConversationId !== currentConversationId) {
+      setCurrentConversationId(initialConversationId);
+      // Switch to chat tab when loading a conversation
+      if (initialConversationId) {
+        setActiveTab('chat');
+      }
+    }
+  }, [initialConversationId]);
+
+  // Handle conversation changes from ChatInterface
+  const handleConversationChange = (newConversationId) => {
+    setCurrentConversationId(newConversationId);
+    if (onConversationChange) {
+      onConversationChange(newConversationId);
+    }
+  };
 
   // Fetch content context from backend on mount and after uploads
   const fetchContentContext = async () => {
@@ -37,7 +60,6 @@ export function LessonsView() {
       
       if (response.ok) {
         const data = await response.json();
-        // Build context strings from content
         const contextStrings = data.contents.map(content => {
           const parts = [];
           parts.push(`=== Document: ${content.title || content.filename} ===`);
@@ -48,7 +70,6 @@ export function LessonsView() {
             parts.push(`Key Points:\n${content.keyPoints.map(p => `- ${p}`).join('\n')}`);
           }
           if (content.extractedText) {
-            // Include extracted text (truncated if too long)
             const maxTextLength = 10000;
             const text = content.extractedText.length > maxTextLength 
               ? content.extractedText.substring(0, maxTextLength) + '...[truncated]'
@@ -65,7 +86,6 @@ export function LessonsView() {
     }
   };
 
-  // Reprocess content to extract text
   const reprocessContent = async (contentId) => {
     if (!token) return;
     
@@ -79,7 +99,6 @@ export function LessonsView() {
       });
       
       if (response.ok) {
-        // Refresh content list after reprocessing
         await fetchContentContext();
       } else {
         const data = await response.json();
@@ -97,9 +116,7 @@ export function LessonsView() {
   }, [token]);
 
   const handleUploadComplete = () => {
-    // Refresh content context after upload
     fetchContentContext();
-    // Switch to chat tab after successful upload
     setActiveTab('chat');
   };
 
@@ -128,7 +145,11 @@ export function LessonsView() {
         </div>
 
         <TabsContent value="chat" className="flex-1 min-h-0 m-0 overflow-hidden">
-          <ChatInterface contentContext={contentContext} />
+          <ChatInterface 
+            contentContext={contentContext} 
+            conversationId={currentConversationId}
+            onConversationChange={handleConversationChange}
+          />
         </TabsContent>
 
         <TabsContent value="upload" className="flex-1 m-0 overflow-auto p-6">
@@ -138,7 +159,6 @@ export function LessonsView() {
               onError={handleUploadError}
             />
 
-            {/* Uploaded Content List */}
             {uploadedContent.length > 0 && (
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">

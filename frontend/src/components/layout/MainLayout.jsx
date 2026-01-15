@@ -6,19 +6,27 @@ import { DashboardView } from '../pages/DashboardView'
 import { SettingsView } from '../pages/SettingsView'
 import { PracticeView } from '../pages/PracticeView'
 import { LessonsView } from '../pages/LessonsView'
+import { HistoryView } from '../pages/HistoryView'
 
 export function MainLayout({ children }) {
   const [currentPath, setCurrentPath] = useState('/dashboard')
+  const [activeConversationId, setActiveConversationId] = useState(null)
 
-  const handleNavigate = (path) => {
+  const handleNavigate = (path, conversationId = null) => {
     setCurrentPath(path)
+    if (conversationId) {
+      setActiveConversationId(conversationId)
+    } else if (path !== '/lessons') {
+      // Clear conversation ID when navigating away from lessons (unless going to lessons)
+      setActiveConversationId(null)
+    }
   }
 
   // Render content based on current path
   const renderContent = () => {
     switch (currentPath) {
       case '/lessons':
-        return <LessonsView />;
+        return <LessonsView conversationId={activeConversationId} onConversationChange={setActiveConversationId} />;
       case '/practice':
         return <PracticeView />;
       case '/progress':
@@ -27,6 +35,8 @@ export function MainLayout({ children }) {
             <ProgressDashboard />
           </div>
         );
+      case '/history':
+        return <HistoryView onNavigate={handleNavigate} />;
       case '/settings':
         return <SettingsView />;
       case '/dashboard':
