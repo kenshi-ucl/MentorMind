@@ -1,28 +1,79 @@
 {
   "name": "ContentAgent",
+  "version": "1.0.0",
   "role": "Content Processor",
-  "description": "An agent that extracts key information, summaries, and main concepts from uploaded educational content (videos and PDFs).",
-  "system_prompt": "You are MentorMind's ContentAgent, specialized in analyzing educational content and extracting key information. When processing content:\n\n1. Identify the main topics and themes\n2. Extract key concepts and definitions\n3. Note important facts, figures, and examples\n4. Create a structured summary of the material\n5. Highlight relationships between concepts\n\nYour extracted information will be used by other agents to answer questions and generate quizzes, so be thorough and accurate.",
+  "description": "An agent that extracts key information, summaries, and main concepts from uploaded educational content (videos and PDFs). Powered by Nebius AI Vision and Text models.",
+  "model": {
+    "text": {
+      "provider": "nebius",
+      "name": "DeepSeek-V3",
+      "fallback": "gpt-oss-120b",
+      "parameters": {
+        "temperature": 0.3,
+        "max_tokens": 4096,
+        "top_p": 0.9
+      }
+    },
+    "vision": {
+      "provider": "nebius",
+      "name": "Gemma-3-27b-it",
+      "parameters": {
+        "temperature": 0.3,
+        "max_tokens": 2048
+      }
+    }
+  },
+  "system_prompt": "You are MentorMind's ContentAgent, specialized in analyzing educational content and extracting key information. When processing content:\n\n1. Identify the main topics and themes\n2. Extract key concepts and definitions\n3. Note important facts, figures, and examples\n4. Create a structured summary of the material\n5. Highlight relationships between concepts\n\nYour extracted information will be used by other agents to answer questions and generate quizzes, so be thorough and accurate.\n\nIMPORTANT: Always respond with valid JSON in the exact format specified.",
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string" },
+      "summary": { "type": "string" },
+      "key_points": { "type": "array", "items": { "type": "string" } },
+      "concepts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "term": { "type": "string" },
+            "definition": { "type": "string" }
+          }
+        }
+      },
+      "topics": { "type": "array", "items": { "type": "string" } },
+      "difficulty_level": { "type": "string", "enum": ["beginner", "intermediate", "advanced"] },
+      "estimated_study_time": { "type": "string" }
+    },
+    "required": ["title", "summary", "key_points", "topics"]
+  },
   "example_format": {
     "input": {
       "content_type": "pdf",
-      "raw_text": "Chapter 1: Introduction to Biology..."
+      "raw_text": "Chapter 1: Introduction to Biology...",
+      "filename": "biology_chapter1.pdf"
     },
     "output": {
       "title": "Introduction to Biology",
-      "summary": "This chapter covers the fundamental concepts of biology...",
+      "summary": "This chapter covers the fundamental concepts of biology including the characteristics of life, cell theory, and the scientific method.",
       "key_points": [
         "Biology is the study of living organisms",
         "All living things share common characteristics",
-        "Cells are the basic unit of life"
+        "Cells are the basic unit of life",
+        "The scientific method is used to investigate biological questions"
       ],
       "concepts": [
         {
           "term": "Cell",
           "definition": "The smallest structural and functional unit of an organism"
+        },
+        {
+          "term": "Homeostasis",
+          "definition": "The ability of an organism to maintain internal stability"
         }
       ],
-      "topics": ["Biology basics", "Cell theory", "Characteristics of life"]
+      "topics": ["Biology basics", "Cell theory", "Characteristics of life", "Scientific method"],
+      "difficulty_level": "beginner",
+      "estimated_study_time": "30 minutes"
     }
   },
   "context_guidance": [
@@ -30,6 +81,28 @@
     "Organize information hierarchically from general to specific",
     "Flag any unclear or potentially inaccurate content",
     "Extract both explicit facts and implicit relationships",
-    "Prioritize information that would be useful for learning and assessment"
+    "Prioritize information that would be useful for learning and assessment",
+    "For images/diagrams, describe visual elements and their educational significance",
+    "Handle large documents by processing in chunks and synthesizing"
+  ],
+  "capabilities": [
+    "Extract text from PDF documents",
+    "Analyze images and diagrams using vision model",
+    "Identify key concepts and definitions",
+    "Generate structured summaries",
+    "Estimate difficulty level and study time",
+    "Process large documents in chunks"
+  ],
+  "chunking_strategy": {
+    "max_chunk_size": 4000,
+    "overlap": 200,
+    "merge_strategy": "synthesize_summaries"
+  },
+  "supported_formats": [
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "video/mp4"
   ]
 }

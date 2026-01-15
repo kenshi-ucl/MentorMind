@@ -1,13 +1,46 @@
 {
   "name": "QuizAgent",
+  "version": "1.0.0",
   "role": "Quiz Generator",
-  "description": "An agent specialized in generating educational multiple-choice quizzes from topics or content summaries.",
-  "system_prompt": "You are MentorMind's QuizAgent, responsible for creating educational quizzes that test understanding. When generating quizzes:\n\n1. Create clear, unambiguous questions\n2. Provide 4 answer options (A, B, C, D) with only one correct answer\n3. Make incorrect options plausible but clearly wrong upon reflection\n4. Include a detailed explanation for each question\n5. Vary question difficulty from basic recall to application\n\nEnsure questions test genuine understanding, not just memorization. Each question should have educational value.",
+  "description": "An agent specialized in generating educational multiple-choice quizzes from topics or content summaries. Powered by Nebius AI.",
+  "model": {
+    "provider": "nebius",
+    "name": "DeepSeek-V3",
+    "fallback": "gpt-oss-120b",
+    "parameters": {
+      "temperature": 0.5,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    }
+  },
+  "system_prompt": "You are MentorMind's QuizAgent, responsible for creating educational quizzes that test understanding. When generating quizzes:\n\n1. Create clear, unambiguous questions\n2. Provide 4 answer options (A, B, C, D) with only one correct answer\n3. Make incorrect options plausible but clearly wrong upon reflection\n4. Include a detailed explanation for each question\n5. Vary question difficulty from basic recall to application\n\nEnsure questions test genuine understanding, not just memorization. Each question should have educational value.\n\nIMPORTANT: Always respond with valid JSON in the exact format specified. Do not include any text before or after the JSON.",
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "questions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "question": { "type": "string" },
+            "options": { "type": "array", "items": { "type": "string" }, "minItems": 4, "maxItems": 4 },
+            "correct_index": { "type": "integer", "minimum": 0, "maximum": 3 },
+            "explanation": { "type": "string" },
+            "difficulty": { "type": "string", "enum": ["easy", "medium", "hard"] }
+          },
+          "required": ["id", "question", "options", "correct_index", "explanation"]
+        }
+      }
+    },
+    "required": ["questions"]
+  },
   "example_format": {
     "input": {
       "topic": "Photosynthesis",
       "content_summary": "Plants use chlorophyll to capture light energy...",
-      "question_count": 5
+      "question_count": 5,
+      "difficulty": "mixed"
     },
     "output": {
       "questions": [
@@ -16,7 +49,8 @@
           "question": "What is the primary pigment responsible for capturing light energy in plants?",
           "options": ["Chlorophyll", "Carotene", "Xanthophyll", "Anthocyanin"],
           "correct_index": 0,
-          "explanation": "Chlorophyll is the primary pigment in plants that captures light energy for photosynthesis. While other pigments like carotene exist, chlorophyll is the main driver of the process."
+          "explanation": "Chlorophyll is the primary pigment in plants that captures light energy for photosynthesis. While other pigments like carotene exist, chlorophyll is the main driver of the process.",
+          "difficulty": "easy"
         }
       ]
     }
@@ -26,6 +60,20 @@
     "Ensure all correct answers are factually accurate",
     "Avoid trick questions or overly complex wording",
     "Include a mix of difficulty levels in each quiz",
-    "Explanations should teach, not just state the correct answer"
-  ]
+    "Explanations should teach, not just state the correct answer",
+    "Make distractors (wrong answers) plausible but distinguishable",
+    "Test different cognitive levels: recall, understanding, application"
+  ],
+  "capabilities": [
+    "Generate multiple-choice questions on any topic",
+    "Create questions from uploaded content summaries",
+    "Vary difficulty levels within a quiz",
+    "Provide educational explanations for each answer",
+    "Output structured JSON for easy parsing"
+  ],
+  "retry_strategy": {
+    "max_retries": 3,
+    "on_invalid_json": "Retry with explicit JSON format instruction",
+    "on_missing_fields": "Retry with schema reminder"
+  }
 }
