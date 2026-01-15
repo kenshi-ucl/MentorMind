@@ -183,24 +183,40 @@ class ContentService:
             # Read file content (for text extraction)
             content_text = self._extract_text(content)
             
-            # Process through ContentAgent
-            result = agent_orchestrator.process_content(
-                content_data=content_text,
-                content_type=content.content_type,
-                filename=content.filename
-            )
+            # Store the extracted text - this is the most important part
+            content.extracted_text = content_text
             
-            # Check for processing failure
-            if result.get("processing_status") == "failed":
-                content.processing_status = 'failed'
-                db.session.commit()
-                return None, result.get("error_message", "Processing failed")
+            # Try to process through ContentAgent for summary/key points
+            try:
+                result = agent_orchestrator.process_content(
+                    content_data=content_text,
+                    content_type=content.content_type,
+                    filename=content.filename
+                )
+                
+                # Check for processing failure
+                if result.get("processing_status") == "failed":
+                    # AI failed but we still have the extracted text
+                    content.summary = "AI processing unavailable - text extracted successfully"
+                    content.key_points = ["Text extracted from document", "AI summary unavailable"]
+                    content.title = content.filename
+                    content.topics = []
+                else:
+                    # Update content with extracted information
+                    content.summary = result.get("summary", "")
+                    content.key_points = result.get("key_points", [])
+                    content.title = result.get("title", content.filename)
+                    content.topics = result.get("topics", [])
+            except Exception as ai_error:
+                # AI processing failed but we still have the extracted text
+                import logging
+                logging.getLogger(__name__).warning(f"AI processing failed: {ai_error}")
+                content.summary = "AI processing unavailable - text extracted successfully"
+                content.key_points = ["Text extracted from document", "AI summary unavailable"]
+                content.title = content.filename
+                content.topics = []
             
-            # Update content with extracted information
-            content.summary = result.get("summary", "")
-            content.key_points = result.get("key_points", [])
-            content.title = result.get("title", content.filename)
-            content.topics = result.get("topics", [])
+            # Mark as complete since we have the extracted text (most important for chat)
             content.processing_status = 'complete'
             db.session.commit()
             
@@ -220,17 +236,53 @@ class ContentService:
         Returns:
             Extracted text string.
         """
-        # Placeholder implementation
-        # In a real implementation:
-        # - For PDF: Use PyPDF2 or pdfplumber
-        # - For video: Use speech-to-text transcription
-        
         if content.content_type == 'pdf':
-            return f"[Extracted text from PDF: {content.filename}]"
+            return self._extract_pdf_text(content.file_path)
         elif content.content_type == 'video':
-            return f"[Transcribed text from video: {content.filename}]"
+            return f"[Video content: {content.filename}. Video transcription not yet implemented.]"
         
         return ""
+    
+    def _extract_pdf_text(self, file_path: str) -> str:
+        """
+        Extract text from a PDF file.
+        
+        Args:
+            file_path: Path to the PDF file.
+            
+        Returns:
+            Extracted text string.
+        """
+        try:
+            from PyPDF2 import PdfReader
+            
+            if not os.path.exists(file_path):
+                return f"[PDF file not found: {file_path}]"
+            
+            reader = PdfReader(file_path)
+            text_parts = []
+            
+            for page_num, page in enumerate(reader.pages, 1):
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(f"--- Page {page_num} ---\n{page_text}")
+            
+            if not text_parts:
+                return "[No text could be extracted from the PDF. The PDF may contain only images.]"
+            
+            full_text = "\n\n".join(text_parts)
+            
+            # Limit text length to avoid overwhelming the AI
+            max_chars = 50000  # ~12,500 tokens approximately
+            if len(full_text) > max_chars:
+                full_text = full_text[:max_chars] + "\n\n[Text truncated due to length...]"
+            
+            return full_text
+            
+        except ImportError:
+            return "[PDF extraction unavailable. PyPDF2 is not installed.]"
+        except Exception as e:
+            return f"[Error extracting PDF text: {str(e)}]"
     
     def get_user_content(self, user_id: str) -> List[Content]:
         """

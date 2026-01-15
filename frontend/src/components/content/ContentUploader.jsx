@@ -348,11 +348,13 @@ export function ContentUploader({ onUploadComplete, onError }) {
             </div>
             
             {/* Summary */}
-            {uploadResult.summary && uploadResult.summary.length > 0 && (
+            {uploadResult.summary && (
               <div className="mb-3">
                 <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-1">Summary</h4>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {uploadResult.summary.join(' ')}
+                  {Array.isArray(uploadResult.summary) 
+                    ? uploadResult.summary.join(' ') 
+                    : uploadResult.summary}
                 </p>
               </div>
             )}

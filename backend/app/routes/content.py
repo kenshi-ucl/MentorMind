@@ -225,3 +225,129 @@ def delete_content(content_id: str):
         return jsonify({'error': error}), 500
     
     return jsonify({'message': 'Content deleted successfully'}), 200
+
+
+@content_bp.route('/<content_id>/text', methods=['GET'])
+@require_auth
+@db_error_handler
+def get_content_text(content_id: str):
+    """
+    Get the extracted text from a content item for chat context.
+    
+    Headers:
+        - Authorization: Bearer <token>
+    
+    Path Parameters:
+        - content_id: ID of the content to retrieve text from
+    
+    Returns:
+        - 200: Content text and metadata
+        - 401: Not authenticated
+        - 403: Not authorized
+        - 404: Content not found
+    """
+    user = request.current_user
+    user_id = user.id
+    
+    content = content_service.get_content(content_id, user_id)
+    
+    if not content:
+        content_exists = content_service.get_content(content_id)
+        if content_exists:
+            return jsonify({'error': 'Not authorized to access this content'}), 403
+        return jsonify({'error': 'Content not found'}), 404
+    
+    return jsonify({
+        'id': content.id,
+        'filename': content.filename,
+        'title': content.title,
+        'summary': content.summary,
+        'extractedText': content.extracted_text,
+        'keyPoints': content.key_points,
+        'topics': content.topics
+    }), 200
+
+
+@content_bp.route('/context', methods=['GET'])
+@require_auth
+@db_error_handler
+def get_all_content_context():
+    """
+    Get all content context for the current user for chat.
+    Returns summaries and key points from all processed content.
+    
+    Headers:
+        - Authorization: Bearer <token>
+    
+    Returns:
+        - 200: List of content context items
+        - 401: Not authenticated
+    """
+    user = request.current_user
+    user_id = user.id
+    
+    contents = content_service.get_user_content(user_id)
+    
+    context_items = []
+    for c in contents:
+        if c.processing_status == 'complete':
+            context_item = {
+                'id': c.id,
+                'filename': c.filename,
+                'title': c.title or c.filename,
+                'summary': c.summary or '',
+                'keyPoints': c.key_points or [],
+                'extractedText': c.extracted_text or ''
+            }
+            context_items.append(context_item)
+    
+    return jsonify({'contents': context_items}), 200
+
+
+@content_bp.route('/<content_id>/reprocess', methods=['POST'])
+@require_auth
+@db_error_handler
+def reprocess_content(content_id: str):
+    """
+    Re-process a content item to extract text and update metadata.
+    Useful for content uploaded before text extraction was implemented.
+    
+    Headers:
+        - Authorization: Bearer <token>
+    
+    Path Parameters:
+        - content_id: ID of the content to reprocess
+    
+    Returns:
+        - 200: Content reprocessed successfully
+        - 401: Not authenticated
+        - 403: Not authorized
+        - 404: Content not found
+        - 500: Processing failed
+    """
+    user = request.current_user
+    user_id = user.id
+    
+    # Verify ownership
+    content = content_service.get_content(content_id, user_id)
+    if not content:
+        content_exists = content_service.get_content(content_id)
+        if content_exists:
+            return jsonify({'error': 'Not authorized to access this content'}), 403
+        return jsonify({'error': 'Content not found'}), 404
+    
+    # Reprocess the content
+    processed_content, error = content_service.process_content(content_id)
+    
+    if error:
+        return jsonify({'error': f'Reprocessing failed: {error}'}), 500
+    
+    return jsonify({
+        'id': processed_content.id,
+        'filename': processed_content.filename,
+        'title': processed_content.title,
+        'summary': processed_content.summary,
+        'keyPoints': processed_content.key_points,
+        'extractedText': processed_content.extracted_text[:500] if processed_content.extracted_text else '',
+        'message': 'Content reprocessed successfully'
+    }), 200

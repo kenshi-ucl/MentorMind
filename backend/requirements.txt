@@ -8,3 +8,4 @@ hypothesis>=6.100.0
 pytest>=8.0.0
 openai>=1.0.0
 opencv-python>=4.8.0
+PyPDF2>=3.0.0

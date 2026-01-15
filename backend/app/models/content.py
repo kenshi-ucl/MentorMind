@@ -24,6 +24,7 @@ class Content(db.Model):
     file_size = db.Column(db.Integer, default=0)
     title = db.Column(db.String(255), nullable=True)
     summary = db.Column(db.Text, nullable=True)
+    extracted_text = db.Column(db.Text, nullable=True)  # Full extracted text from PDF/video
     key_points_json = db.Column(db.Text, nullable=True)  # JSON array
     topics_json = db.Column(db.Text, nullable=True)  # JSON array
     processing_status = db.Column(db.String(20), default='pending')
@@ -63,6 +64,7 @@ class Content(db.Model):
             'file_size': self.file_size,
             'title': self.title,
             'summary': self.summary,
+            'extracted_text': self.extracted_text,
             'key_points': self.key_points,
             'topics': self.topics,
             'processing_status': self.processing_status,
