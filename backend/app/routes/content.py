@@ -2,6 +2,7 @@
 from flask import Blueprint, request, jsonify
 from app.services.content_service import content_service
 from app.services.auth_service import auth_service
+from app.routes.auth import require_auth
 
 content_bp = Blueprint('content', __name__)
 
@@ -29,6 +30,7 @@ def get_current_user_id() -> tuple[str | None, dict | None, int | None]:
 
 
 @content_bp.route('/upload', methods=['POST'])
+@require_auth
 def upload_content():
     """
     Upload a file (video or PDF).
@@ -46,10 +48,9 @@ def upload_content():
         - 413: File too large
         - 500: Processing failed
     """
-    # Authenticate user
-    user_id, error_response, status_code = get_current_user_id()
-    if error_response:
-        return jsonify(error_response), status_code
+    # Get user from request context (set by require_auth decorator)
+    user = request.current_user
+    user_id = user.id
     
     # Check if file is present
     if 'file' not in request.files:
@@ -87,16 +88,16 @@ def upload_content():
             return jsonify({
                 'contentId': content.id,
                 'filename': content.filename,
-                'fileType': content.file_type,
+                'fileType': content.content_type,
                 'warning': f'File uploaded but processing failed: {process_error}',
-                'summary': [],
+                'summary': '',
                 'keyPoints': []
             }), 201
         
         return jsonify({
             'contentId': processed_content.id,
             'filename': processed_content.filename,
-            'fileType': processed_content.file_type,
+            'fileType': processed_content.content_type,
             'summary': processed_content.summary,
             'keyPoints': processed_content.key_points
         }), 201
@@ -106,6 +107,7 @@ def upload_content():
 
 
 @content_bp.route('/list', methods=['GET'])
+@require_auth
 def list_contents():
     """
     List all content for the current user.
@@ -117,22 +119,23 @@ def list_contents():
         - 200: List of user's content
         - 401: Not authenticated
     """
-    # Authenticate user
-    user_id, error_response, status_code = get_current_user_id()
-    if error_response:
-        return jsonify(error_response), status_code
+    # Get user from request context (set by require_auth decorator)
+    user = request.current_user
+    user_id = user.id
     
-    contents = content_service.get_user_contents(user_id)
+    contents = content_service.get_user_content(user_id)
     
     return jsonify({
         'contents': [
             {
                 'id': c.id,
                 'filename': c.filename,
-                'fileType': c.file_type,
+                'fileType': c.content_type,
+                'title': c.title,
                 'summary': c.summary,
                 'keyPoints': c.key_points,
-                'processedAt': c.processed_at.isoformat() if c.processed_at else None,
+                'topics': c.topics,
+                'processingStatus': c.processing_status,
                 'createdAt': c.created_at.isoformat() if c.created_at else None
             }
             for c in contents
@@ -141,6 +144,7 @@ def list_contents():
 
 
 @content_bp.route('/<content_id>', methods=['GET'])
+@require_auth
 def get_content(content_id: str):
     """
     Get a specific content item.
@@ -157,31 +161,35 @@ def get_content(content_id: str):
         - 403: Not authorized
         - 404: Content not found
     """
-    # Authenticate user
-    user_id, error_response, status_code = get_current_user_id()
-    if error_response:
-        return jsonify(error_response), status_code
+    # Get user from request context (set by require_auth decorator)
+    user = request.current_user
+    user_id = user.id
     
-    content = content_service.get_content(content_id)
+    # Use user_id filter to ensure user can only access their own content
+    content = content_service.get_content(content_id, user_id)
     
     if not content:
+        # Check if content exists but belongs to another user
+        content_exists = content_service.get_content(content_id)
+        if content_exists:
+            return jsonify({'error': 'Not authorized to access this content'}), 403
         return jsonify({'error': 'Content not found'}), 404
-    
-    if content.user_id != user_id:
-        return jsonify({'error': 'Not authorized to access this content'}), 403
     
     return jsonify({
         'id': content.id,
         'filename': content.filename,
-        'fileType': content.file_type,
+        'fileType': content.content_type,
+        'title': content.title,
         'summary': content.summary,
         'keyPoints': content.key_points,
-        'processedAt': content.processed_at.isoformat() if content.processed_at else None,
+        'topics': content.topics,
+        'processingStatus': content.processing_status,
         'createdAt': content.created_at.isoformat() if content.created_at else None
     }), 200
 
 
 @content_bp.route('/<content_id>', methods=['DELETE'])
+@require_auth
 def delete_content(content_id: str):
     """
     Delete a content item.
@@ -198,10 +206,9 @@ def delete_content(content_id: str):
         - 403: Not authorized
         - 404: Content not found
     """
-    # Authenticate user
-    user_id, error_response, status_code = get_current_user_id()
-    if error_response:
-        return jsonify(error_response), status_code
+    # Get user from request context (set by require_auth decorator)
+    user = request.current_user
+    user_id = user.id
     
     success, error = content_service.delete_content(content_id, user_id)
     

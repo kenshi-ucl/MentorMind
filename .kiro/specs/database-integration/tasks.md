@@ -92,8 +92,8 @@ This implementation plan integrates SQLite database into MentorMind to replace i
   - Ensure all tests pass
   - Ask the user if questions arise
 
-- [ ] 7. Update ContentService for database persistence
-  - [ ] 7.1 Rewrite ContentService to use SQLAlchemy
+- [x] 7. Update ContentService for database persistence
+  - [x] 7.1 Rewrite ContentService to use SQLAlchemy
     - Update `backend/app/services/content_service.py`
     - Implement `save_content()` with file and DB storage
     - Implement `update_content_metadata()` for AI extraction results
@@ -101,18 +101,18 @@ This implementation plan integrates SQLite database into MentorMind to replace i
     - Implement `get_content()` for single item
     - Implement `delete_content()` for removal
     - _Requirements: 4.1, 4.3, 4.4, 4.5_
-  - [ ] 7.2 Write property test for content user isolation
+  - [x] 7.2 Write property test for content user isolation
     - **Property 4: Content User Isolation**
     - **Validates: Requirements 4.3**
-  - [ ] 7.3 Write property test for content persistence round-trip
+  - [x] 7.3 Write property test for content persistence round-trip
     - **Property 5: Content Persistence Round-Trip**
     - **Validates: Requirements 4.1, 4.5**
-  - [ ] 7.4 Write property test for content deletion completeness
+  - [x] 7.4 Write property test for content deletion completeness
     - **Property 6: Content Deletion Completeness**
     - **Validates: Requirements 4.4**
 
-- [ ] 8. Update content routes
-  - [ ] 8.1 Update content routes to use new ContentService
+- [x] 8. Update content routes
+  - [x] 8.1 Update content routes to use new ContentService
     - Update `backend/app/routes/content.py`
     - Add `require_auth` decorator to all endpoints
     - Update upload endpoint to save to database
@@ -120,7 +120,7 @@ This implementation plan integrates SQLite database into MentorMind to replace i
     - Add delete endpoint
     - _Requirements: 4.1, 4.3, 4.4_
 
-- [ ] 9. Checkpoint - Verify content management
+- [-] 9. Checkpoint - Verify content management
   - Test content upload and listing
   - Verify user isolation works
   - Ensure all tests pass
