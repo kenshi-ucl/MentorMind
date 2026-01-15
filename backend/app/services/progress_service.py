@@ -1,97 +1,169 @@
-"""Progress service for tracking and calculating user learning progress."""
-from typing import Optional
-from app.models.progress import UserProgress, TopicProgress, ProgressEntry
-from app.services.quiz_service import quiz_service
+"""
+Progress service for tracking and calculating user learning progress.
+
+Uses SQLAlchemy for database persistence of quiz results and progress tracking.
+"""
+from typing import Optional, Dict, Any, List
+from datetime import datetime
+from collections import defaultdict
+
+from app.database import db
+from app.models.quiz_result import QuizResult
 
 
 class ProgressService:
-    """Service for managing user progress tracking."""
+    """Service for managing user progress tracking with database persistence."""
     
-    def __init__(self):
-        """Initialize the progress service."""
-        # Progress is calculated dynamically from quiz results
-        pass
-    
-    def get_user_progress(self, user_id: str) -> UserProgress:
+    def record_quiz_result(
+        self,
+        user_id: str,
+        quiz_id: str,
+        topic: Optional[str],
+        score: int,
+        total_questions: int,
+        answers: Optional[Dict[str, Any]] = None
+    ) -> QuizResult:
         """
-        Get progress data for a user.
-        
-        Calculates progress from quiz results including:
-        - Total quizzes taken
-        - Overall success rate
-        - Topics mastered (>= 80% success rate)
-        - Topics needing work (< 50% success rate)
-        - Progress over time
+        Record a quiz result in the database.
         
         Args:
-            user_id: ID of the user.
+            user_id: ID of the user who completed the quiz
+            quiz_id: ID of the quiz
+            topic: Topic of the quiz (optional)
+            score: Number of correct answers
+            total_questions: Total number of questions
+            answers: Dictionary of question IDs to user answers (optional)
             
         Returns:
-            UserProgress object with calculated metrics.
+            The created QuizResult object
         """
-        # Get all quiz results for the user
-        results = quiz_service.get_user_results(user_id)
+        result = QuizResult(
+            user_id=user_id,
+            quiz_id=quiz_id,
+            topic=topic,
+            score=score,
+            total_questions=total_questions
+        )
         
-        # Initialize progress
-        progress = UserProgress(user_id=user_id)
+        if answers:
+            result.answers = answers
+        
+        db.session.add(result)
+        db.session.commit()
+        
+        return result
+    
+    def get_progress(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get aggregated progress for a user.
+        
+        Calculates progress metrics from stored quiz results including:
+        - Total quizzes taken
+        - Total questions answered
+        - Correct answers count
+        - Overall success rate
+        - Topic-wise progress
+        - Recent activity
+        
+        Args:
+            user_id: ID of the user
+            
+        Returns:
+            Dictionary containing progress metrics
+        """
+        results = QuizResult.query.filter_by(user_id=user_id).all()
         
         if not results:
-            return progress
+            return {
+                'totalQuizzes': 0,
+                'totalQuestions': 0,
+                'correctAnswers': 0,
+                'successRate': 0.0,
+                'topicProgress': {},
+                'recentActivity': []
+            }
         
-        # Calculate totals and build topic progress
-        topics: dict[str, TopicProgress] = {}
-        history: list[ProgressEntry] = []
+        total_questions = sum(r.total_questions for r in results)
+        correct_answers = sum(r.score for r in results)
         
-        for result in results:
-            # Update totals
-            progress.total_quizzes += 1
-            progress.total_questions += result.total_questions
-            progress.correct_answers += result.correct_count
+        # Calculate topic-wise progress
+        topic_stats = defaultdict(lambda: {'correct': 0, 'total': 0, 'quizzes': 0})
+        for r in results:
+            if r.topic:
+                topic_stats[r.topic]['correct'] += r.score
+                topic_stats[r.topic]['total'] += r.total_questions
+                topic_stats[r.topic]['quizzes'] += 1
+        
+        topic_progress = {}
+        for topic, stats in topic_stats.items():
+            percentage = (stats['correct'] / stats['total'] * 100) if stats['total'] > 0 else 0.0
+            topic_progress[topic] = {
+                'percentage': round(percentage, 1),
+                'quizzes': stats['quizzes'],
+                'correct': stats['correct'],
+                'total': stats['total']
+            }
+        
+        # Get recent activity (last 10 results, sorted by date descending)
+        recent = sorted(results, key=lambda r: r.created_at or datetime.min, reverse=True)[:10]
+        recent_activity = [{
+            'quizId': r.quiz_id,
+            'topic': r.topic,
+            'score': r.score,
+            'total': r.total_questions,
+            'percentage': r.percentage,
+            'date': r.created_at.isoformat() if r.created_at else None
+        } for r in recent]
+        
+        # Calculate overall success rate
+        success_rate = round((correct_answers / total_questions * 100), 1) if total_questions > 0 else 0.0
+        
+        return {
+            'totalQuizzes': len(results),
+            'totalQuestions': total_questions,
+            'correctAnswers': correct_answers,
+            'successRate': success_rate,
+            'topicProgress': topic_progress,
+            'recentActivity': recent_activity
+        }
+    
+    def get_quiz_results(self, user_id: str) -> List[QuizResult]:
+        """
+        Get all quiz results for a user.
+        
+        Args:
+            user_id: ID of the user
             
-            # Get quiz to find topic
-            quiz = quiz_service.get_quiz(result.quiz_id)
-            topic = quiz.topic if quiz else None
+        Returns:
+            List of QuizResult objects
+        """
+        return QuizResult.query.filter_by(user_id=user_id).order_by(
+            QuizResult.created_at.desc()
+        ).all()
+    
+    def get_quiz_result(self, result_id: str, user_id: str) -> Optional[QuizResult]:
+        """
+        Get a specific quiz result if owned by user.
+        
+        Args:
+            result_id: ID of the quiz result
+            user_id: ID of the user
             
-            # Add to history
-            history.append(ProgressEntry(
-                date=result.completed_at,
-                quiz_id=result.quiz_id,
-                score=result.score * 100,  # Convert to percentage
-                topic=topic
-            ))
-            
-            # Update topic progress if topic exists
-            if topic:
-                if topic not in topics:
-                    topics[topic] = TopicProgress(
-                        topic=topic,
-                        attempts=0,
-                        correct=0,
-                        total_questions=0
-                    )
-                
-                topics[topic].attempts += 1
-                topics[topic].correct += result.correct_count
-                topics[topic].total_questions += result.total_questions
-        
-        # Sort history by date
-        history.sort(key=lambda x: x.date if x.date else 0)
-        
-        progress.topics_attempted = topics
-        progress.history = history
-        
-        return progress
+        Returns:
+            QuizResult if found and owned by user, None otherwise
+        """
+        return QuizResult.query.filter_by(id=result_id, user_id=user_id).first()
     
     def calculate_success_rate(self, correct: int, total: int) -> float:
         """
         Calculate success rate as a percentage.
         
         Args:
-            correct: Number of correct answers.
-            total: Total number of questions.
+            correct: Number of correct answers
+            total: Total number of questions
             
         Returns:
-            Success rate from 0.0 to 100.0, rounded to 1 decimal place.
+            Success rate from 0.0 to 100.0, rounded to 1 decimal place
         """
         if total == 0:
             return 0.0
@@ -102,10 +174,10 @@ class ProgressService:
         Categorize a topic based on success rate.
         
         Args:
-            success_rate: Success rate as a percentage (0-100).
+            success_rate: Success rate as a percentage (0-100)
             
         Returns:
-            Category string: "mastered", "needs_work", or "in_progress".
+            Category string: "mastered", "needs_work", or "in_progress"
         """
         if success_rate >= 80.0:
             return "mastered"
@@ -114,34 +186,36 @@ class ProgressService:
         else:
             return "in_progress"
     
-    def get_topics_mastered(self, topics: dict[str, TopicProgress]) -> list[str]:
+    def get_topics_mastered(self, user_id: str) -> List[str]:
         """
         Get list of topics with success rate >= 80%.
         
         Args:
-            topics: Dictionary of topic name to TopicProgress.
+            user_id: ID of the user
             
         Returns:
-            List of mastered topic names.
+            List of mastered topic names
         """
+        progress = self.get_progress(user_id)
         return [
-            topic for topic, progress in topics.items()
-            if progress.success_rate >= 80.0
+            topic for topic, data in progress['topicProgress'].items()
+            if data['percentage'] >= 80.0
         ]
     
-    def get_topics_needing_work(self, topics: dict[str, TopicProgress]) -> list[str]:
+    def get_topics_needing_work(self, user_id: str) -> List[str]:
         """
         Get list of topics with success rate < 50%.
         
         Args:
-            topics: Dictionary of topic name to TopicProgress.
+            user_id: ID of the user
             
         Returns:
-            List of topic names needing improvement.
+            List of topic names needing improvement
         """
+        progress = self.get_progress(user_id)
         return [
-            topic for topic, progress in topics.items()
-            if progress.success_rate < 50.0
+            topic for topic, data in progress['topicProgress'].items()
+            if data['percentage'] < 50.0
         ]
 
 

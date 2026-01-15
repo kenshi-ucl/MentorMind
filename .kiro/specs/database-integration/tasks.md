@@ -120,33 +120,33 @@ This implementation plan integrates SQLite database into MentorMind to replace i
     - Add delete endpoint
     - _Requirements: 4.1, 4.3, 4.4_
 
-- [-] 9. Checkpoint - Verify content management
+- [x] 9. Checkpoint - Verify content management
   - Test content upload and listing
   - Verify user isolation works
   - Ensure all tests pass
   - Ask the user if questions arise
 
-- [ ] 10. Update ProgressService for database persistence
-  - [ ] 10.1 Rewrite ProgressService to use SQLAlchemy
+- [x] 10. Update ProgressService for database persistence
+  - [x] 10.1 Rewrite ProgressService to use SQLAlchemy
     - Update `backend/app/services/progress_service.py`
     - Implement `record_quiz_result()` for saving results
     - Implement `get_progress()` for aggregated stats
     - Calculate topic-wise progress from stored results
     - _Requirements: 5.1, 5.3, 5.4, 5.5_
-  - [ ] 10.2 Write property test for progress calculation accuracy
+  - [x] 10.2 Write property test for progress calculation accuracy
     - **Property 7: Progress Calculation Accuracy**
     - **Validates: Requirements 5.1, 5.3, 5.5**
-  - [ ] 10.3 Write property test for topic progress tracking
+  - [x] 10.3 Write property test for topic progress tracking
     - **Property 8: Topic Progress Tracking**
     - **Validates: Requirements 5.4**
 
-- [ ] 11. Update progress and quiz routes
-  - [ ] 11.1 Update progress routes
+- [x] 11. Update progress and quiz routes
+  - [x] 11.1 Update progress routes
     - Update `backend/app/routes/progress.py`
     - Add `require_auth` decorator
     - Use new ProgressService for data
     - _Requirements: 5.3, 5.5_
-  - [ ] 11.2 Update quiz routes to record results
+  - [x] 11.2 Update quiz routes to record results
     - Update `backend/app/routes/quiz.py`
     - Record quiz results on submission
     - _Requirements: 5.1_

@@ -1,38 +1,14 @@
 """Quiz routes for quiz generation and submission."""
 from flask import Blueprint, request, jsonify
 from app.services.quiz_service import quiz_service
-from app.services.auth_service import auth_service
+from app.services.progress_service import progress_service
+from app.routes.auth import require_auth
 
 quiz_bp = Blueprint('quiz', __name__)
 
 
-def get_current_user_id() -> tuple[str | None, dict | None, int | None]:
-    """
-    Get the current user ID from the authorization header.
-    
-    Returns:
-        Tuple of (user_id, error_response, status_code).
-        If successful, error_response and status_code are None.
-    """
-    auth_header = request.headers.get('Authorization')
-    
-    if not auth_header:
-        return None, {'error': 'Authorization header required'}, 401
-    
-    # Handle both "Bearer <token>" and just "<token>" formats
-    token = auth_header
-    if auth_header.startswith('Bearer '):
-        token = auth_header[7:]
-    
-    # Validate token and get user
-    user = auth_service.validate_token(token)
-    if not user:
-        return None, {'error': 'Invalid or expired token'}, 401
-    
-    return user.id, None, None
-
-
 @quiz_bp.route('/generate', methods=['POST'])
+@require_auth
 def generate_quiz():
     """
     Generate a quiz from a topic or content.
@@ -51,9 +27,7 @@ def generate_quiz():
         - 404: Content not found
         - 500: Quiz generation failed
     """
-    user_id, error, status = get_current_user_id()
-    if error:
-        return jsonify(error), status
+    user_id = request.current_user.id
     
     data = request.get_json()
     
@@ -100,6 +74,7 @@ def generate_quiz():
 
 
 @quiz_bp.route('/submit', methods=['POST'])
+@require_auth
 def submit_quiz():
     """
     Submit quiz answers and get results.
@@ -115,9 +90,7 @@ def submit_quiz():
         - 404: Quiz not found
         - 409: Quiz already submitted
     """
-    user_id, error, status = get_current_user_id()
-    if error:
-        return jsonify(error), status
+    user_id = request.current_user.id
     
     data = request.get_json()
     
@@ -163,6 +136,27 @@ def submit_quiz():
     # Get the quiz to include question details in response
     quiz = quiz_service.get_quiz(quiz_id)
     
+    # Record quiz result to database for progress tracking
+    # Build answers dict for storage
+    answers_dict = {}
+    for i, answer in enumerate(answers):
+        if i < len(quiz.questions):
+            answers_dict[quiz.questions[i].id] = {
+                'userAnswer': answer,
+                'correctAnswer': quiz.questions[i].correct_index,
+                'isCorrect': answer == quiz.questions[i].correct_index
+            }
+    
+    # Record to database using ProgressService
+    progress_service.record_quiz_result(
+        user_id=user_id,
+        quiz_id=quiz_id,
+        topic=quiz.topic,
+        score=result.correct_count,
+        total_questions=result.total_questions,
+        answers=answers_dict
+    )
+    
     # Build detailed results with explanations for incorrect answers
     results = []
     for i, question in enumerate(quiz.questions):
@@ -193,6 +187,7 @@ def submit_quiz():
 
 
 @quiz_bp.route('/<quiz_id>', methods=['GET'])
+@require_auth
 def get_quiz(quiz_id: str):
     """
     Get a quiz by ID.
@@ -202,9 +197,7 @@ def get_quiz(quiz_id: str):
         - 401: Unauthorized
         - 404: Quiz not found
     """
-    user_id, error, status = get_current_user_id()
-    if error:
-        return jsonify(error), status
+    user_id = request.current_user.id
     
     quiz = quiz_service.get_quiz(quiz_id)
     
@@ -224,6 +217,7 @@ def get_quiz(quiz_id: str):
 
 
 @quiz_bp.route('/list', methods=['GET'])
+@require_auth
 def list_quizzes():
     """
     List all quizzes for the current user.
@@ -232,9 +226,7 @@ def list_quizzes():
         - 200: List of quizzes
         - 401: Unauthorized
     """
-    user_id, error, status = get_current_user_id()
-    if error:
-        return jsonify(error), status
+    user_id = request.current_user.id
     
     quizzes = quiz_service.get_user_quizzes(user_id)
     
@@ -251,6 +243,7 @@ def list_quizzes():
 
 
 @quiz_bp.route('/results', methods=['GET'])
+@require_auth
 def list_results():
     """
     List all quiz results for the current user.
@@ -259,9 +252,7 @@ def list_results():
         - 200: List of quiz results
         - 401: Unauthorized
     """
-    user_id, error, status = get_current_user_id()
-    if error:
-        return jsonify(error), status
+    user_id = request.current_user.id
     
     results = quiz_service.get_user_results(user_id)
     
