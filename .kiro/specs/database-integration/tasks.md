@@ -157,16 +157,16 @@ This implementation plan integrates SQLite database into MentorMind to replace i
   - Ensure all tests pass
   - Ask the user if questions arise
 
-- [-] 13. Final integration and testing
-  - [-] 13.1 Write property test for data persistence across restarts
+- [x] 13. Final integration and testing
+  - [x] 13.1 Write property test for data persistence across restarts
     - **Property 9: Data Persistence Across Restarts**
     - **Validates: Requirements 6.2**
-  - [ ] 13.2 Add error handling for database operations
+  - [x] 13.2 Add error handling for database operations
     - Implement try/catch for database errors
     - Return appropriate HTTP status codes
     - Log errors for debugging
     - _Requirements: 7.1, 7.2, 7.4_
-  - [ ] 13.3 Update .gitignore for database files
+  - [x] 13.3 Update .gitignore for database files
     - Add `backend/data/*.db` to .gitignore
     - Keep data directory but ignore database files
 

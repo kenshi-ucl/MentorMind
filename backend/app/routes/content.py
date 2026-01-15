@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify
 from app.services.content_service import content_service
 from app.services.auth_service import auth_service
 from app.routes.auth import require_auth
+from app.errors import db_error_handler
 
 content_bp = Blueprint('content', __name__)
 
@@ -31,6 +32,7 @@ def get_current_user_id() -> tuple[str | None, dict | None, int | None]:
 
 @content_bp.route('/upload', methods=['POST'])
 @require_auth
+@db_error_handler
 def upload_content():
     """
     Upload a file (video or PDF).
@@ -108,6 +110,7 @@ def upload_content():
 
 @content_bp.route('/list', methods=['GET'])
 @require_auth
+@db_error_handler
 def list_contents():
     """
     List all content for the current user.
@@ -145,6 +148,7 @@ def list_contents():
 
 @content_bp.route('/<content_id>', methods=['GET'])
 @require_auth
+@db_error_handler
 def get_content(content_id: str):
     """
     Get a specific content item.
@@ -190,6 +194,7 @@ def get_content(content_id: str):
 
 @content_bp.route('/<content_id>', methods=['DELETE'])
 @require_auth
+@db_error_handler
 def delete_content(content_id: str):
     """
     Delete a content item.

@@ -3,12 +3,14 @@ from flask import Blueprint, request, jsonify
 from app.services.quiz_service import quiz_service
 from app.services.progress_service import progress_service
 from app.routes.auth import require_auth
+from app.errors import db_error_handler
 
 quiz_bp = Blueprint('quiz', __name__)
 
 
 @quiz_bp.route('/generate', methods=['POST'])
 @require_auth
+@db_error_handler
 def generate_quiz():
     """
     Generate a quiz from a topic or content.
@@ -75,6 +77,7 @@ def generate_quiz():
 
 @quiz_bp.route('/submit', methods=['POST'])
 @require_auth
+@db_error_handler
 def submit_quiz():
     """
     Submit quiz answers and get results.
@@ -188,6 +191,7 @@ def submit_quiz():
 
 @quiz_bp.route('/<quiz_id>', methods=['GET'])
 @require_auth
+@db_error_handler
 def get_quiz(quiz_id: str):
     """
     Get a quiz by ID.
@@ -218,6 +222,7 @@ def get_quiz(quiz_id: str):
 
 @quiz_bp.route('/list', methods=['GET'])
 @require_auth
+@db_error_handler
 def list_quizzes():
     """
     List all quizzes for the current user.
@@ -244,6 +249,7 @@ def list_quizzes():
 
 @quiz_bp.route('/results', methods=['GET'])
 @require_auth
+@db_error_handler
 def list_results():
     """
     List all quiz results for the current user.

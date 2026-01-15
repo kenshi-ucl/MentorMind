@@ -1,6 +1,13 @@
 import os
+import logging
 from flask import Flask
 from flask_cors import CORS
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 def create_app():
@@ -13,6 +20,10 @@ def create_app():
     # Initialize database
     from app.database import init_db
     init_db(app)
+    
+    # Register error handlers for database operations
+    from app.errors import register_error_handlers
+    register_error_handlers(app)
     
     # Register blueprints
     from app.routes import api_bp

@@ -2,6 +2,7 @@
 from functools import wraps
 from flask import Blueprint, request, jsonify
 from app.services.auth_service import auth_service
+from app.errors import db_error_handler
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -34,6 +35,7 @@ def require_auth(f):
 
 
 @auth_bp.route('/register', methods=['POST'])
+@db_error_handler
 def register():
     """
     Register a new user.
@@ -83,6 +85,7 @@ def register():
 
 
 @auth_bp.route('/login', methods=['POST'])
+@db_error_handler
 def login():
     """
     Authenticate a user with email and password.
@@ -123,6 +126,7 @@ def login():
 
 
 @auth_bp.route('/anonymous', methods=['POST'])
+@db_error_handler
 def anonymous_session():
     """
     Create an anonymous user session.
@@ -144,6 +148,7 @@ def anonymous_session():
 
 
 @auth_bp.route('/logout', methods=['POST'])
+@db_error_handler
 def logout():
     """
     Logout and invalidate the current session.
@@ -170,6 +175,7 @@ def logout():
 
 
 @auth_bp.route('/me', methods=['GET'])
+@db_error_handler
 def get_current_user():
     """
     Get the current authenticated user.

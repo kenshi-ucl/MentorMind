@@ -2,12 +2,14 @@
 from flask import Blueprint, request, jsonify
 from app.services.progress_service import progress_service
 from app.routes.auth import require_auth
+from app.errors import db_error_handler
 
 progress_bp = Blueprint('progress', __name__)
 
 
 @progress_bp.route('', methods=['GET'])
 @require_auth
+@db_error_handler
 def get_progress():
     """
     Get user progress data.
@@ -59,6 +61,7 @@ def get_progress():
 
 @progress_bp.route('/results', methods=['GET'])
 @require_auth
+@db_error_handler
 def get_quiz_results():
     """
     Get all quiz results for the current user.
@@ -86,6 +89,7 @@ def get_quiz_results():
 
 @progress_bp.route('/topics/mastered', methods=['GET'])
 @require_auth
+@db_error_handler
 def get_topics_mastered():
     """
     Get list of topics the user has mastered (>= 80% success rate).
@@ -105,6 +109,7 @@ def get_topics_mastered():
 
 @progress_bp.route('/topics/needs-work', methods=['GET'])
 @require_auth
+@db_error_handler
 def get_topics_needing_work():
     """
     Get list of topics needing improvement (< 50% success rate).

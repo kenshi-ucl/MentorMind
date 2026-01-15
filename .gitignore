@@ -46,3 +46,10 @@ env/
 
 # Logs
 *.log
+
+# Database files
+backend/data/*.db
+*.db
+
+# Keep data directory but ignore database files
+!backend/data/.gitkeep
