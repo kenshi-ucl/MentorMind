@@ -17,6 +17,16 @@ from app.models.agent_prompt import AgentPrompt
 from app.models.progress import UserProgress, TopicProgress, ProgressEntry
 from app.models.conversation import Conversation, Message
 
+# Friends & Communication models
+from app.models.friend import Friend
+from app.models.friend_request import FriendRequest, RequestStatus
+from app.models.direct_chat import DirectChat
+from app.models.message import DirectMessage, GroupMessage
+from app.models.group_learning import GroupLearning
+from app.models.group_member import GroupMember
+from app.models.call import Call, CallParticipant
+from app.models.user_presence import UserPresence
+
 __all__ = [
     # SQLAlchemy ORM Models
     "User",
@@ -25,6 +35,18 @@ __all__ = [
     "QuizResult",
     "Conversation",
     "Message",
+    # Friends & Communication Models
+    "Friend",
+    "FriendRequest",
+    "RequestStatus",
+    "DirectChat",
+    "DirectMessage",
+    "GroupMessage",
+    "GroupLearning",
+    "GroupMember",
+    "Call",
+    "CallParticipant",
+    "UserPresence",
     # Legacy models (for compatibility)
     "AgentPrompt",
     "UserProgress",

@@ -26,6 +26,22 @@ api_bp.register_blueprint(progress_bp, url_prefix='/progress')
 from app.routes.seed import seed_bp
 api_bp.register_blueprint(seed_bp)
 
+# Register friends routes
+from app.routes.friends import friends_bp
+api_bp.register_blueprint(friends_bp, url_prefix='/friends')
+
+# Register direct chat routes (extends /chat)
+from app.routes.direct_chat import direct_chat_bp
+api_bp.register_blueprint(direct_chat_bp, url_prefix='/chat')
+
+# Register groups routes
+from app.routes.groups import groups_bp
+api_bp.register_blueprint(groups_bp, url_prefix='/groups')
+
+# Register calls routes
+from app.routes.calls import calls_bp
+api_bp.register_blueprint(calls_bp, url_prefix='/calls')
+
 
 @api_bp.route('/health', methods=['GET'])
 def health_check():

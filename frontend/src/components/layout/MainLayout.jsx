@@ -7,6 +7,9 @@ import { SettingsView } from '../pages/SettingsView'
 import { PracticeView } from '../pages/PracticeView'
 import { LessonsView } from '../pages/LessonsView'
 import { HistoryView } from '../pages/HistoryView'
+import { FriendsView } from '../friends/FriendsView'
+import { GroupLearningView } from '../groups/GroupLearningView'
+import { CallInterface } from '../calls/CallInterface'
 
 export function MainLayout({ children }) {
   const [currentPath, setCurrentPath] = useState('/dashboard')
@@ -39,6 +42,10 @@ export function MainLayout({ children }) {
         return <HistoryView onNavigate={handleNavigate} />;
       case '/settings':
         return <SettingsView />;
+      case '/friends':
+        return <FriendsView />;
+      case '/groups':
+        return <GroupLearningView />;
       case '/dashboard':
       default:
         return children || <DashboardView onNavigate={handleNavigate} />;
@@ -60,6 +67,9 @@ export function MainLayout({ children }) {
           {renderContent()}
         </main>
       </div>
+      
+      {/* Call Interface (full screen when active) */}
+      <CallInterface />
     </div>
   )
 }

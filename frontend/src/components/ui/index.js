@@ -14,3 +14,5 @@ export {
 } from "./dialog";
 export { Tabs, TabsList, TabsTrigger, TabsContent } from "./tabs";
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "./accordion";
+export { Badge } from "./Badge";
+export { Avatar } from "./Avatar";
