@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { Phone, Video } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useCall } from '../../context/CallContext';
 import { ParticipantList } from './ParticipantList';
 import { GroupInvite } from './GroupInvite';
 import { GroupChat } from './GroupChat';
@@ -8,10 +10,12 @@ const API_BASE = 'http://localhost:5000/api';
 
 export function GroupDetail({ group, onBack, onUpdate }) {
   const { user, token } = useAuth();
+  const { initiateCall, isInCall } = useCall();
   const [activeTab, setActiveTab] = useState('chat');
   const [showInvite, setShowInvite] = useState(false);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [callLoading, setCallLoading] = useState(false);
 
   useEffect(() => {
     fetchMembers();
@@ -67,6 +71,23 @@ export function GroupDetail({ group, onBack, onUpdate }) {
     }
   };
 
+  const handleStartCall = async (callType) => {
+    if (isInCall || callLoading) return;
+    
+    setCallLoading(true);
+    try {
+      const result = await initiateCall(callType, 'group', group.id);
+      if (!result.success) {
+        alert(result.error || 'Failed to start call');
+      }
+    } catch (error) {
+      console.error('Failed to start call:', error);
+      alert('Failed to start call');
+    } finally {
+      setCallLoading(false);
+    }
+  };
+
   const isCreator = group.creatorId === user?.id;
 
   return (
@@ -86,6 +107,30 @@ export function GroupDetail({ group, onBack, onUpdate }) {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
+          </button>
+          <button 
+            onClick={() => handleStartCall('voice')} 
+            disabled={isInCall || callLoading}
+            className={`p-2 rounded-lg transition-colors ${
+              isInCall || callLoading 
+                ? 'text-gray-400 cursor-not-allowed' 
+                : 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20'
+            }`} 
+            title="Start voice call"
+          >
+            <Phone className="w-5 h-5" />
+          </button>
+          <button 
+            onClick={() => handleStartCall('video')} 
+            disabled={isInCall || callLoading}
+            className={`p-2 rounded-lg transition-colors ${
+              isInCall || callLoading 
+                ? 'text-gray-400 cursor-not-allowed' 
+                : 'text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+            }`} 
+            title="Start video call"
+          >
+            <Video className="w-5 h-5" />
           </button>
         </div>
         <div className="flex gap-1 mt-4">

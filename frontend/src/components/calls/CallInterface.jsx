@@ -274,9 +274,16 @@ export function CallInterface() {
       {/* Header */}
       <div className="flex items-center justify-between p-4 bg-black/30">
         <div className="text-white">
-          <h2 className="font-semibold">{activeCall.contextType === 'direct' ? 'Call' : 'Group Call'}</h2>
+          <h2 className="font-semibold">
+            {activeCall.contextType === 'direct' ? 'Call' : 'Group Call'}
+          </h2>
           <p className="text-sm text-gray-300">
             {isRinging ? 'Calling...' : formatDuration(callDuration)}
+            {isActive && activeCall.contextType === 'group' && (
+              <span className="ml-2">
+                • {Object.keys(remoteStreams).length + 1} participants
+              </span>
+            )}
           </p>
         </div>
         
@@ -290,7 +297,7 @@ export function CallInterface() {
       </div>
       
       {/* Content Area */}
-      <div className="flex-1 p-4">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {isRinging ? (
           // Show "Calling..." UI when ringing
           <div className="h-full flex items-center justify-center">
@@ -325,8 +332,15 @@ export function CallInterface() {
               <p className="text-gray-400">
                 {activeCall.contextType === 'direct' 
                   ? 'Waiting for answer' 
-                  : 'Waiting for participants to join'}
+                  : `Calling ${activeCall.participants?.filter(p => p.status === 'ringing').length || 0} group members`}
               </p>
+              
+              {/* Show who has joined for group calls */}
+              {activeCall.contextType === 'group' && Object.keys(remoteStreams).length > 0 && (
+                <p className="text-green-400 text-sm mt-2">
+                  {Object.keys(remoteStreams).length} participant(s) joined
+                </p>
+              )}
               
               {/* Animated dots */}
               <div className="flex justify-center gap-2 mt-4">

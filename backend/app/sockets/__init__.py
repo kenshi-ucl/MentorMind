@@ -279,7 +279,7 @@ def handle_call_accept(data):
     join_room(f"call:{call_id}")
     logger.info(f"User {user.id} joined call room call:{call_id}")
     
-    # Get the call to find the initiator
+    # Get the call to find the initiator and other participants
     from app.models.call import Call
     call = Call.query.get(call_id)
     
@@ -300,7 +300,25 @@ def handle_call_accept(data):
             'userName': user.name
         }, room=f"user:{call.initiator_id}")
     
-    return {'success': True, 'participant': participant.to_dict()}
+    # For group calls, notify all other joined participants that a new person joined
+    # This helps them know they might receive an offer from the new participant
+    if call and call.context_type == 'group':
+        joined_participants = [p for p in call.participants.all() 
+                             if p.status == 'joined' and p.user_id != user.id]
+        for p in joined_participants:
+            logger.info(f"Notifying participant {p.user_id} about new joiner {user.id}")
+            emit('call:participant-joined', {
+                'callId': call_id,
+                'userId': user.id,
+                'userName': user.name
+            }, room=f"user:{p.user_id}")
+    
+    # Return the updated call with all participants so the new joiner knows who to connect to
+    return {
+        'success': True, 
+        'participant': participant.to_dict(),
+        'call': call.to_dict(include_participants=True) if call else None
+    }
 
 
 @socketio.on('call:decline')
@@ -316,32 +334,95 @@ def handle_call_decline(data):
     
     logger.info(f"Call decline: user={user.id}, call={call_id}")
     
-    success, error = call_service.decline_call(call_id, user.id)
+    success, error, call_ended = call_service.decline_call(call_id, user.id)
     
     if error:
         logger.error(f"Call decline error: {error}")
         return {'error': error}
     
-    # Get the call to find the initiator
+    # Get the call to check its status
     from app.models.call import Call
     call = Call.query.get(call_id)
     
-    # Notify other participants in the call room
-    logger.info(f"Sending call:declined to room call:{call_id}")
-    emit('call:declined', {
-        'callId': call_id,
-        'userId': user.id,
-        'userName': user.name
-    }, room=f"call:{call_id}")
-    
-    # Also send directly to the initiator's user room to ensure delivery
-    if call and call.initiator_id != user.id:
-        logger.info(f"Also sending call:declined directly to initiator user:{call.initiator_id}")
+    # Only notify about decline if the call ended (direct call or everyone declined)
+    # For group calls where others are still connected, don't broadcast decline
+    if call_ended:
+        # Notify other participants in the call room
+        logger.info(f"Sending call:declined to room call:{call_id}")
         emit('call:declined', {
             'callId': call_id,
             'userId': user.id,
             'userName': user.name
-        }, room=f"user:{call.initiator_id}")
+        }, room=f"call:{call_id}")
+        
+        # Also send directly to the initiator's user room to ensure delivery
+        if call and call.initiator_id != user.id:
+            logger.info(f"Also sending call:declined directly to initiator user:{call.initiator_id}")
+            emit('call:declined', {
+                'callId': call_id,
+                'userId': user.id,
+                'userName': user.name
+            }, room=f"user:{call.initiator_id}")
+    else:
+        # Just notify the initiator that this specific user declined (for UI update)
+        if call and call.initiator_id != user.id:
+            emit('call:participant-declined', {
+                'callId': call_id,
+                'userId': user.id,
+                'userName': user.name
+            }, room=f"user:{call.initiator_id}")
+            
+            # Also notify all joined participants
+            for p in call.participants.all():
+                if p.status == 'joined' and p.user_id != user.id:
+                    emit('call:participant-declined', {
+                        'callId': call_id,
+                        'userId': user.id,
+                        'userName': user.name
+                    }, room=f"user:{p.user_id}")
+    
+    return {'success': True, 'callEnded': call_ended}
+
+
+@socketio.on('call:cancel-ringing')
+def handle_cancel_ringing(data):
+    """Handle canceling ringing (initiator timeout without ending active call)."""
+    token = request.args.get('token')
+    user = get_user_from_token(token)
+    
+    if not user:
+        return {'error': 'Unauthorized'}
+    
+    call_id = data.get('callId')
+    
+    logger.info(f"Cancel ringing: user={user.id}, call={call_id}")
+    
+    success, error = call_service.cancel_ringing(call_id, user.id)
+    
+    if error:
+        logger.error(f"Cancel ringing error: {error}")
+        return {'error': error}
+    
+    # Get the call to check if it was ended
+    from app.models.call import Call
+    call = Call.query.get(call_id)
+    
+    if call and call.status == 'missed':
+        # Call was ended because no one joined
+        emit('call:ended', {
+            'callId': call_id,
+            'endedBy': user.id,
+            'reason': 'timeout'
+        }, room=f"call:{call_id}")
+        
+        # Also notify ringing participants
+        for p in call.participants.all():
+            if p.user_id != user.id:
+                emit('call:ended', {
+                    'callId': call_id,
+                    'endedBy': user.id,
+                    'reason': 'timeout'
+                }, room=f"user:{p.user_id}")
     
     return {'success': True}
 
@@ -423,6 +504,42 @@ def handle_call_end(data):
     
     call_id = data.get('callId')
     
+    # Get the call before ending to check if it's a group call
+    from app.models.call import Call
+    call = Call.query.get(call_id)
+    
+    if not call:
+        return {'error': 'Call not found'}
+    
+    is_group_call = call.context_type == 'group'
+    
+    # For group calls, user leaving doesn't end the call for everyone
+    # Only end if they're the last participant
+    if is_group_call:
+        # Count remaining joined participants (excluding current user)
+        remaining = sum(1 for p in call.participants.all() 
+                       if p.status == 'joined' and p.user_id != user.id)
+        
+        if remaining > 0:
+            # Just leave the call, don't end it
+            success, error = call_service.leave_call(call_id, user.id)
+            
+            if error:
+                return {'error': error}
+            
+            # Notify other participants that this user left
+            emit('call:participant-left', {
+                'callId': call_id,
+                'userId': user.id,
+                'userName': user.name
+            }, room=f"call:{call_id}")
+            
+            # Leave call room
+            leave_room(f"call:{call_id}")
+            
+            return {'success': True, 'action': 'left'}
+    
+    # End the call for everyone (direct call or last person in group call)
     success, error = call_service.end_call(call_id, user.id)
     
     if error:
@@ -437,7 +554,7 @@ def handle_call_end(data):
     # Leave call room
     leave_room(f"call:{call_id}")
     
-    return {'success': True}
+    return {'success': True, 'action': 'ended'}
 
 
 @socketio.on('call:media-state')

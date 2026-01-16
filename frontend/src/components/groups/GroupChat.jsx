@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Avatar } from '../ui/Avatar';
+import websocketService from '../../lib/websocket';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -9,7 +10,65 @@ export function GroupChat({ groupId }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
+
+  // Connect to WebSocket and join the group chat room
+  useEffect(() => {
+    if (!token || !groupId) return;
+
+    const connectAndJoin = async () => {
+      try {
+        // Ensure WebSocket is connected
+        if (!websocketService.connected) {
+          await websocketService.connect(token);
+        }
+        
+        // Join the group chat room
+        await websocketService.joinChat(groupId, 'group');
+        console.log('Joined group chat room:', groupId);
+      } catch (error) {
+        console.error('Failed to join group chat:', error);
+      }
+    };
+
+    connectAndJoin();
+
+    // Cleanup: leave the room when component unmounts or groupId changes
+    return () => {
+      if (websocketService.connected) {
+        websocketService.leaveChat(groupId, 'group').catch(err => {
+          console.error('Failed to leave group chat:', err);
+        });
+        console.log('Left group chat room:', groupId);
+      }
+    };
+  }, [token, groupId]);
+
+  // Listen for incoming messages
+  useEffect(() => {
+    if (!groupId) return;
+
+    const handleNewMessage = (message) => {
+      console.log('Received group message:', message);
+      // Only add if it's for this group and not from current user (we already added it optimistically)
+      if (message.groupId === groupId && message.senderId !== user?.id) {
+        setMessages(prev => {
+          // Check if message already exists (avoid duplicates)
+          if (prev.some(m => m.id === message.id)) {
+            return prev;
+          }
+          return [...prev, message];
+        });
+      }
+    };
+
+    const unsubscribe = websocketService.on('chat:message', handleNewMessage);
+
+    return () => {
+      unsubscribe();
+    };
+  }, [groupId, user?.id]);
 
   useEffect(() => {
     fetchMessages();
@@ -38,21 +97,44 @@ export function GroupChat({ groupId }) {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!input.trim() || !token) return;
+    if (!input.trim() || !token || sending) return;
+    
     const content = input.trim();
     setInput('');
+    setSending(true);
+    
     try {
-      const response = await fetch(`${API_BASE}/groups/${groupId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ content })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setMessages(prev => [...prev, data]);
+      // Try to send via WebSocket first for real-time delivery
+      if (websocketService.connected) {
+        const result = await websocketService.sendMessage(groupId, content, 'group');
+        if (result?.message) {
+          // Add the message to our local state
+          setMessages(prev => {
+            // Check if message already exists
+            if (prev.some(m => m.id === result.message.id)) {
+              return prev;
+            }
+            return [...prev, result.message];
+          });
+        }
+      } else {
+        // Fallback to HTTP if WebSocket not connected
+        const response = await fetch(`${API_BASE}/groups/${groupId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ content })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setMessages(prev => [...prev, data]);
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
+      // Restore the input if sending failed
+      setInput(content);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -91,7 +173,7 @@ export function GroupChat({ groupId }) {
       <form onSubmit={handleSend} className="p-4 border-t border-gray-200 dark:border-gray-700">
         <div className="flex gap-2">
           <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Type a message..." className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-full bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
-          <button type="submit" disabled={!input.trim()} className="p-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50">
+          <button type="submit" disabled={!input.trim() || sending} className="p-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>

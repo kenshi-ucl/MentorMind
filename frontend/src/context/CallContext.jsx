@@ -25,6 +25,7 @@ export function CallProvider({ children }) {
   const activeCallRef = useRef(null);
   const incomingCallRef = useRef(null);
   const localStreamRef = useRef(null);
+  const remoteStreamsRef = useRef({});
 
   // Keep refs in sync
   useEffect(() => {
@@ -38,6 +39,10 @@ export function CallProvider({ children }) {
   useEffect(() => {
     localStreamRef.current = localStream;
   }, [localStream]);
+
+  useEffect(() => {
+    remoteStreamsRef.current = remoteStreams;
+  }, [remoteStreams]);
 
   const playRingtone = useCallback(() => {
     audioService.playRingtone();
@@ -58,8 +63,18 @@ export function CallProvider({ children }) {
     }, 1000);
   }, []);
 
-  const initiateCall = async (callType, contextType, contextId) => {
+  const initiateCall = async (callType, contextType, contextId, retryAfterCleanup = true) => {
+    let stream = null;
+    
     try {
+      // Clear any stale state from previous calls
+      if (activeCallRef.current) {
+        console.log('Clearing stale active call state before initiating new call');
+        webrtcService.closeAllConnections();
+        setActiveCall(null);
+        setRemoteStreams({});
+      }
+      
       // Ensure websocket is connected
       if (!websocketService.connected) {
         await websocketService.connect(token);
@@ -67,7 +82,7 @@ export function CallProvider({ children }) {
 
       // Get local media stream - this also sets webrtcService.localStream
       const isVideoCall = callType === 'video';
-      const stream = await webrtcService.getLocalStream(isVideoCall, true);
+      stream = await webrtcService.getLocalStream(isVideoCall, true);
       setLocalStream(stream);
       setIsVideoOff(!isVideoCall);
       
@@ -85,19 +100,97 @@ export function CallProvider({ children }) {
         audioService.playRingtone();
         
         // Set timeout for unanswered call
-        callTimeoutRef.current = setTimeout(() => {
+        // For group calls, we use a longer timeout
+        const timeout = contextType === 'group' ? 60000 : CALL_TIMEOUT; // 60s for group, 30s for direct
+        
+        callTimeoutRef.current = setTimeout(async () => {
           const call = activeCallRef.current;
-          if (call?.status === 'ringing') {
+          if (!call) return;
+          
+          // Stop ringtone regardless
+          stopRingtone();
+          
+          // Check if anyone has connected
+          const hasConnections = Object.keys(remoteStreamsRef.current).length > 0;
+          
+          if (hasConnections) {
+            // Someone is connected, just cancel ringing for others
+            // Don't end the call
+            console.log('Timeout reached but call is active with connections, canceling ringing only');
+            try {
+              await websocketService.cancelRinging(call.id);
+            } catch (err) {
+              console.error('Failed to cancel ringing:', err);
+            }
+          } else {
+            // No one connected, end the call
+            console.log('Timeout reached with no connections, ending call');
             endCall();
           }
-        }, CALL_TIMEOUT);
+        }, timeout);
         
         return { success: true, call: result.call };
       }
       
+      // Clean up local stream if no call was created
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
+      }
       return { success: false, error: 'Failed to initiate call' };
     } catch (err) {
       console.error('Failed to initiate call:', err);
+      
+      // Check if this is an "already active call" error and we should try cleanup
+      const errorMessage = err.message || '';
+      if (errorMessage.includes('already an active call') && retryAfterCleanup) {
+        console.log('Got "already active call" error, attempting cleanup...');
+        
+        // Clean up current stream before retry
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+          setLocalStream(null);
+        }
+        
+        try {
+          // Call the cleanup API endpoint
+          const cleanupResponse = await fetch(
+            `http://localhost:5000/api/calls/cleanup/${contextType}/${contextId}`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+          
+          if (cleanupResponse.ok) {
+            const cleanupResult = await cleanupResponse.json();
+            console.log('Cleanup result:', cleanupResult);
+            
+            if (cleanupResult.cleanedCount > 0) {
+              // Retry the call initiation (but don't retry cleanup again)
+              console.log('Retrying call initiation after cleanup...');
+              return initiateCall(callType, contextType, contextId, false);
+            }
+          } else {
+            console.error('Cleanup request failed:', cleanupResponse.status);
+          }
+        } catch (cleanupErr) {
+          console.error('Failed to cleanup stale calls:', cleanupErr);
+        }
+      }
+      
+      // Clean up local stream on error
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
+      } else if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
+      }
+      
       return { success: false, error: err.message };
     }
   };
@@ -129,7 +222,9 @@ export function CallProvider({ children }) {
       console.log('Call accepted:', result);
       
       if (result?.success) {
-        const acceptedCall = { ...call, status: 'active', isInitiator: false };
+        // Use the updated call data from the server if available (includes current participants)
+        const updatedCall = result.call || call;
+        const acceptedCall = { ...updatedCall, status: 'active', isInitiator: false };
         setActiveCall(acceptedCall);
         setIncomingCall(null);
         
@@ -139,22 +234,65 @@ export function CallProvider({ children }) {
         // Start duration timer
         startDurationTimer();
         
-        // Ensure local stream is set in webrtc service before creating offer
-        console.log('Ensuring local stream is set before creating offer');
+        // Ensure local stream is set in webrtc service before creating offers
+        console.log('Ensuring local stream is set before creating offers');
         webrtcService.setLocalStream(stream);
         
-        // The receiver creates an offer and sends it to the initiator
-        console.log('Creating offer for initiator:', call.initiatorId);
-        const offer = await webrtcService.createOffer(
-          call.initiatorId,
-          (userId, candidate) => {
-            console.log('Sending ICE candidate to:', userId);
-            websocketService.sendIceCandidate(call.id, userId, candidate);
-          }
-        );
+        // For group calls, we need to connect to ALL existing participants who have joined
+        // For direct calls, just connect to the initiator
+        console.log('All participants from server:', updatedCall.participants);
         
-        console.log('Sending offer to initiator');
-        await websocketService.sendOffer(call.id, call.initiatorId, offer);
+        // Get all participants who might be in the call (not declined/left)
+        // We use the tie-breaker to determine who creates the offer
+        let potentialParticipants = updatedCall.participants?.filter(p => 
+          p.userId !== user?.id && 
+          p.status !== 'declined' && 
+          p.status !== 'left'
+        ) || [];
+        
+        console.log('Potential participants to connect to:', potentialParticipants.map(p => ({ id: p.userId, name: p.userName, status: p.status })));
+        
+        // Always ensure the initiator is included (they should always be connected)
+        const initiatorInList = potentialParticipants.some(p => p.userId === updatedCall.initiatorId);
+        if (!initiatorInList && updatedCall.initiatorId !== user?.id) {
+          console.log('Initiator not in list, adding them:', updatedCall.initiatorId);
+          // Find initiator in all participants or create a minimal entry
+          const initiator = updatedCall.participants?.find(p => p.userId === updatedCall.initiatorId);
+          if (initiator) {
+            potentialParticipants.push(initiator);
+          } else {
+            potentialParticipants.push({ userId: updatedCall.initiatorId, userName: updatedCall.initiatorName });
+          }
+        }
+        
+        console.log('Final participants to connect to:', potentialParticipants.map(p => p.userId));
+        
+        // Create offers for participants where we should be the offerer
+        // To avoid "glare" (both sides creating offers simultaneously), we use a
+        // deterministic tie-breaker: the user with the "higher" ID creates the offer
+        for (const participant of potentialParticipants) {
+          const shouldCreateOffer = user?.id > participant.userId;
+          
+          if (shouldCreateOffer) {
+            console.log('We have higher ID, creating offer for participant:', participant.userId);
+            try {
+              const offer = await webrtcService.createOffer(
+                participant.userId,
+                (userId, candidate) => {
+                  console.log('Sending ICE candidate to:', userId);
+                  websocketService.sendIceCandidate(call.id, userId, candidate);
+                }
+              );
+              
+              console.log('Sending offer to participant:', participant.userId);
+              await websocketService.sendOffer(call.id, participant.userId, offer);
+            } catch (err) {
+              console.error('Failed to create offer for participant:', participant.userId, err);
+            }
+          } else {
+            console.log('Participant has higher ID, they will send us an offer:', participant.userId);
+          }
+        }
         
         return { success: true };
       }
@@ -174,12 +312,20 @@ export function CallProvider({ children }) {
     clearTimeout(callTimeoutRef.current);
     
     try {
-      await websocketService.declineCall(call.id);
+      const result = await websocketService.declineCall(call.id);
+      console.log('Decline call result:', result);
     } catch (err) {
       console.error('Failed to decline call:', err);
     }
     
+    // Always clear incoming call state after declining
     setIncomingCall(null);
+    
+    // Clean up any local stream that might have been created
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      setLocalStream(null);
+    }
   };
 
   const endCall = async () => {
@@ -191,7 +337,8 @@ export function CallProvider({ children }) {
     clearInterval(durationIntervalRef.current);
     
     try {
-      await websocketService.endCall(call.id);
+      const result = await websocketService.endCall(call.id);
+      console.log('End call result:', result);
     } catch (err) {
       console.error('Failed to end call:', err);
     }
@@ -319,6 +466,20 @@ export function CallProvider({ children }) {
 
     const handleRing = (call) => {
       console.log('Incoming call:', call);
+      
+      // If we already have an active call, ignore the incoming call
+      // (user is already in a call)
+      if (activeCallRef.current) {
+        console.log('Already in a call, ignoring incoming call');
+        return;
+      }
+      
+      // If we already have an incoming call from the same call ID, ignore
+      if (incomingCallRef.current?.id === call.id) {
+        console.log('Already have this incoming call, ignoring duplicate');
+        return;
+      }
+      
       setIncomingCall(call);
       playRingtone();
       
@@ -336,25 +497,170 @@ export function CallProvider({ children }) {
       const call = activeCallRef.current;
       
       if (call?.id === data.callId) {
-        stopRingtone();
-        clearTimeout(callTimeoutRef.current);
+        // Update participants list
+        setActiveCall(prev => {
+          if (!prev) return prev;
+          const updatedParticipants = prev.participants?.map(p => 
+            p.userId === data.userId ? { ...p, status: 'joined' } : p
+          ) || [];
+          
+          // For group calls, transition to active when first person joins
+          // For direct calls, also transition to active
+          const newStatus = prev.status === 'ringing' ? 'active' : prev.status;
+          
+          return { ...prev, participants: updatedParticipants, status: newStatus };
+        });
         
-        // Play connected sound
-        audioService.playConnected();
+        // Only stop ringtone and start timer for the initiator on first accept
+        if (call.isInitiator && call.status === 'ringing') {
+          stopRingtone();
+          clearTimeout(callTimeoutRef.current);
+          
+          // Play connected sound
+          audioService.playConnected();
+          
+          // Start duration timer for the initiator
+          startDurationTimer();
+        }
         
-        // Start duration timer for the initiator
-        startDurationTimer();
+        console.log('Call is now active, participant joined:', data.userId);
         
-        setActiveCall(prev => ({ ...prev, status: 'active' }));
+        // For the initiator, we need to establish connection with the new participant
+        // Use tie-breaker: higher ID creates the offer
+        if (data.userId !== user?.id) {
+          const existingPc = webrtcService.getPeerConnection(data.userId);
+          if (!existingPc) {
+            const shouldCreateOffer = user?.id > data.userId;
+            
+            if (shouldCreateOffer) {
+              console.log('We have higher ID, creating offer for accepted participant:', data.userId);
+              
+              const currentStream = localStreamRef.current;
+              if (currentStream) {
+                webrtcService.setLocalStream(currentStream);
+                
+                try {
+                  const offer = await webrtcService.createOffer(
+                    data.userId,
+                    (userId, candidate) => {
+                      console.log('Sending ICE candidate to accepted participant:', userId);
+                      websocketService.sendIceCandidate(call.id, userId, candidate);
+                    }
+                  );
+                  
+                  console.log('Sending offer to accepted participant:', data.userId);
+                  await websocketService.sendOffer(call.id, data.userId, offer);
+                } catch (err) {
+                  console.error('Failed to create offer for accepted participant:', data.userId, err);
+                }
+              }
+            } else {
+              console.log('Accepted participant has higher ID, waiting for their offer:', data.userId);
+            }
+          } else {
+            console.log('Already have connection to accepted participant:', data.userId);
+          }
+        }
+      }
+    };
+
+    // Handle when a new participant joins a group call (for existing participants)
+    const handleParticipantJoined = async (data) => {
+      console.log('Participant joined event received:', data);
+      const call = activeCallRef.current;
+      
+      if (call?.id === data.callId && data.userId !== user?.id) {
+        // Update participants list
+        setActiveCall(prev => {
+          if (!prev) return prev;
+          const updatedParticipants = prev.participants?.map(p => 
+            p.userId === data.userId ? { ...p, status: 'joined' } : p
+          ) || [];
+          return { ...prev, participants: updatedParticipants };
+        });
         
-        console.log('Call is now active, waiting for offer from receiver');
+        console.log('New participant joined group call:', data.userId, data.userName);
+        
+        // Check if we already have a connection to this user
+        const existingPc = webrtcService.getPeerConnection(data.userId);
+        if (existingPc) {
+          console.log('Already have connection to participant:', data.userId, 'state:', existingPc.connectionState);
+        } else {
+          // We don't have a connection yet - we should create one!
+          // In a mesh topology, existing participants should also initiate connections
+          // to new joiners to ensure full connectivity
+          
+          // To avoid "glare" (both sides creating offers simultaneously), we use a
+          // deterministic tie-breaker: the user with the "higher" ID creates the offer
+          const shouldCreateOffer = user?.id > data.userId;
+          
+          if (shouldCreateOffer) {
+            console.log('We have higher ID, creating offer to new participant:', data.userId);
+            
+            // Ensure local stream is set
+            const currentStream = localStreamRef.current;
+            if (currentStream) {
+              webrtcService.setLocalStream(currentStream);
+              
+              try {
+                const offer = await webrtcService.createOffer(
+                  data.userId,
+                  (userId, candidate) => {
+                    console.log('Sending ICE candidate to new participant:', userId);
+                    websocketService.sendIceCandidate(call.id, userId, candidate);
+                  }
+                );
+                
+                console.log('Sending offer to new participant:', data.userId);
+                await websocketService.sendOffer(call.id, data.userId, offer);
+              } catch (err) {
+                console.error('Failed to create offer for new participant:', data.userId, err);
+              }
+            } else {
+              console.warn('No local stream available to create offer for new participant');
+            }
+          } else {
+            console.log('New participant has higher ID, waiting for their offer:', data.userId);
+          }
+        }
+      }
+    };
+
+    // Handle when a participant leaves a group call
+    const handleParticipantLeft = (data) => {
+      console.log('Participant left event received:', data);
+      const call = activeCallRef.current;
+      
+      if (call?.id === data.callId && data.userId !== user?.id) {
+        // Close the peer connection for this user
+        webrtcService.closePeerConnection(data.userId);
+        
+        // Remove their stream from state
+        setRemoteStreams(prev => {
+          const updated = { ...prev };
+          delete updated[data.userId];
+          return updated;
+        });
+        
+        // Update participants list
+        setActiveCall(prev => {
+          if (!prev) return prev;
+          const updatedParticipants = prev.participants?.map(p => 
+            p.userId === data.userId ? { ...p, status: 'left' } : p
+          ) || [];
+          return { ...prev, participants: updatedParticipants };
+        });
+        
+        console.log('Participant left group call:', data.userId, data.userName);
       }
     };
 
     const handleDeclined = (data) => {
       console.log('Call declined:', data);
       const call = activeCallRef.current;
+      const incoming = incomingCallRef.current;
       
+      // This event is only sent when the call actually ends (direct call declined or all group members declined)
       if (call?.id === data.callId) {
         stopRingtone();
         audioService.playEnded();
@@ -385,23 +691,67 @@ export function CallProvider({ children }) {
           });
         }
       }
+      
+      // Also handle if this was an incoming call that got declined/ended
+      if (incoming?.id === data.callId) {
+        stopRingtone();
+        clearTimeout(callTimeoutRef.current);
+        setIncomingCall(null);
+      }
+    };
+
+    // Handle when a specific participant declines (for group calls, doesn't end the call)
+    const handleParticipantDeclined = (data) => {
+      console.log('Participant declined:', data);
+      const call = activeCallRef.current;
+      
+      if (call?.id === data.callId) {
+        // Update participants list to show they declined
+        setActiveCall(prev => {
+          if (!prev) return prev;
+          const updatedParticipants = prev.participants?.map(p => 
+            p.userId === data.userId ? { ...p, status: 'declined' } : p
+          ) || [];
+          return { ...prev, participants: updatedParticipants };
+        });
+        
+        console.log('Participant declined group call:', data.userId, data.userName);
+      }
     };
 
     const handleEnded = (data) => {
       console.log('Call ended:', data);
       const call = activeCallRef.current;
+      const incoming = incomingCallRef.current;
       
+      // Handle active call ending
       if (call?.id === data.callId) {
         stopRingtone();
         clearInterval(durationIntervalRef.current);
+        clearTimeout(callTimeoutRef.current);
         audioService.playEnded();
         webrtcService.closeAllConnections();
+        
+        // Stop local stream
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach(track => track.stop());
+        }
         
         setActiveCall(null);
         setLocalStream(null);
         setRemoteStreams({});
         setCallDuration(0);
         setIsMinimized(false);
+        setIsMuted(false);
+        setIsVideoOff(true);
+        setIsScreenSharing(false);
+      }
+      
+      // Handle incoming call ending (e.g., caller hung up before we answered)
+      if (incoming?.id === data.callId) {
+        stopRingtone();
+        clearTimeout(callTimeoutRef.current);
+        setIncomingCall(null);
       }
     };
 
@@ -576,21 +926,27 @@ export function CallProvider({ children }) {
     const unsubRing = websocketService.on('call:ring', handleRing);
     const unsubAccepted = websocketService.on('call:accepted', handleAccepted);
     const unsubDeclined = websocketService.on('call:declined', handleDeclined);
+    const unsubParticipantDeclined = websocketService.on('call:participant-declined', handleParticipantDeclined);
     const unsubEnded = websocketService.on('call:ended', handleEnded);
     const unsubOffer = websocketService.on('call:offer', handleOffer);
     const unsubAnswer = websocketService.on('call:answer', handleAnswer);
     const unsubIce = websocketService.on('call:ice-candidate', handleIceCandidate);
     const unsubMedia = websocketService.on('call:media-state', handleMediaState);
+    const unsubParticipantJoined = websocketService.on('call:participant-joined', handleParticipantJoined);
+    const unsubParticipantLeft = websocketService.on('call:participant-left', handleParticipantLeft);
 
     return () => {
       unsubRing();
       unsubAccepted();
       unsubDeclined();
+      unsubParticipantDeclined();
       unsubEnded();
       unsubOffer();
       unsubAnswer();
       unsubIce();
       unsubMedia();
+      unsubParticipantJoined();
+      unsubParticipantLeft();
       clearTimeout(callTimeoutRef.current);
       clearInterval(durationIntervalRef.current);
       stopRingtone();

@@ -102,13 +102,13 @@ def decline_call(call_id):
     """
     user = request.current_user
     
-    success, error = call_service.decline_call(call_id, user.id)
+    success, error, call_ended = call_service.decline_call(call_id, user.id)
     
     if error:
         status_code = 404 if 'not found' in error.lower() else 400
         return jsonify({'error': error}), status_code
     
-    return jsonify({'message': 'Call declined'}), 200
+    return jsonify({'message': 'Call declined', 'callEnded': call_ended}), 200
 
 
 @calls_bp.route('/<call_id>/end', methods=['POST'])
@@ -217,3 +217,27 @@ def get_incoming_calls():
     calls = call_service.get_incoming_calls(user.id)
     
     return jsonify({'calls': calls}), 200
+
+
+@calls_bp.route('/cleanup/<context_type>/<context_id>', methods=['POST'])
+@require_auth
+def cleanup_stale_calls(context_type, context_id):
+    """
+    Clean up any stale/stuck calls in a context.
+    This is useful when calls get stuck due to network issues or crashes.
+    
+    Returns:
+        - 200: Cleanup completed
+        - 400: Invalid context type
+    """
+    user = request.current_user
+    
+    if context_type not in ['direct', 'group']:
+        return jsonify({'error': 'Invalid context type'}), 400
+    
+    cleaned_count = call_service.cleanup_stale_calls(context_type, context_id, user.id)
+    
+    return jsonify({
+        'message': f'Cleaned up {cleaned_count} stale call(s)',
+        'cleanedCount': cleaned_count
+    }), 200

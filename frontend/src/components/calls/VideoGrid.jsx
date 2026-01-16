@@ -112,7 +112,7 @@ function VideoTile({ stream, participant, isLocal, isVideoOff, isMuted }) {
   console.log(`VideoTile [${isLocal ? 'local' : participant?.userName}] render: showVideo=${showVideo}, hasEnabledVideoTrack=${hasEnabledVideoTrack}, isVideoOff=${isVideoOff}`);
   
   return (
-    <div className="relative bg-gray-800 rounded-lg overflow-hidden aspect-video">
+    <div className="relative bg-gray-800 rounded-lg overflow-hidden" style={{ minHeight: 0 }}>
       {/* Always render video element to maintain ref, but hide when not showing */}
       <video
         ref={videoRef}
@@ -120,7 +120,7 @@ function VideoTile({ stream, participant, isLocal, isVideoOff, isMuted }) {
         playsInline
         muted={isLocal}
         className={cn(
-          "w-full h-full object-cover",
+          "absolute inset-0 w-full h-full object-cover",
           isLocal && "transform scale-x-[-1]",
           !showVideo && "hidden"
         )}
@@ -128,10 +128,10 @@ function VideoTile({ stream, participant, isLocal, isVideoOff, isMuted }) {
       
       {/* Show avatar when video is off */}
       {!showVideo && (
-        <div className="w-full h-full flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center">
           <Avatar 
             name={participant?.userName || 'You'} 
-            size="xl" 
+            size="lg" 
           />
         </div>
       )}
@@ -139,11 +139,11 @@ function VideoTile({ stream, participant, isLocal, isVideoOff, isMuted }) {
       {/* Overlay */}
       <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
         <div className="flex items-center justify-between">
-          <span className="text-white text-sm font-medium">
+          <span className="text-white text-sm font-medium truncate">
             {isLocal ? 'You' : participant?.userName}
           </span>
           
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {isMuted && (
               <span className="p-1 bg-red-500 rounded-full">
                 <MicOff className="w-3 h-3 text-white" />
@@ -177,21 +177,35 @@ export function VideoGrid({ localStream, remoteStreams, participants, currentUse
   console.log('VideoGrid - all participants:', participants?.map(p => ({ userId: p.userId, userName: p.userName, status: p.status })));
   console.log('VideoGrid - remote participants with streams:', remoteParticipantsWithStreams.map(p => ({ userId: p.userId, userName: p.userName })));
   console.log('VideoGrid - remoteStreams keys:', Object.keys(remoteStreams));
+  console.log('VideoGrid - totalParticipants:', totalParticipants);
   
-  // Determine grid layout
-  const gridCols = totalParticipants <= 1 ? 1 
-    : totalParticipants <= 4 ? 2 
-    : totalParticipants <= 9 ? 3 
-    : 4;
+  // Determine grid layout based on participant count
+  let gridCols;
+  
+  if (totalParticipants === 1) {
+    gridCols = 1;
+  } else if (totalParticipants === 2) {
+    gridCols = 2;
+  } else if (totalParticipants <= 4) {
+    gridCols = 2;
+  } else if (totalParticipants <= 9) {
+    gridCols = 3;
+  } else {
+    gridCols = 4;
+  }
+  
+  // Calculate rows needed
+  const gridRows = Math.ceil(totalParticipants / gridCols);
+  
+  console.log('VideoGrid - gridCols:', gridCols, 'gridRows:', gridRows);
   
   return (
     <div 
-      className={cn(
-        "h-full grid gap-4",
-        `grid-cols-${gridCols}`
-      )}
+      className="h-full w-full grid gap-2 p-2"
       style={{
-        gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`
+        gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+        gridTemplateRows: `repeat(${gridRows}, 1fr)`,
+        gridAutoRows: '1fr'
       }}
     >
       {/* Local video */}

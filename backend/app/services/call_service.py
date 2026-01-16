@@ -84,7 +84,61 @@ class CallService:
         ).first()
         
         if existing_call:
-            return None, "There is already an active call in this context"
+            from datetime import timedelta
+            now = datetime.utcnow()
+            
+            # Get call age and participant info
+            call_age = now - existing_call.created_at
+            participants = existing_call.participants.all()
+            
+            # Count different participant states
+            joined_count = sum(1 for p in participants if p.status == 'joined')
+            pending_count = sum(1 for p in participants if p.status in ['ringing', 'invited'])
+            non_initiator_joined = sum(1 for p in participants 
+                                      if p.status == 'joined' and p.user_id != existing_call.initiator_id)
+            
+            # Determine if call should be cleaned up
+            should_cleanup = False
+            cleanup_reason = None
+            
+            # Case 1: Call is older than 1 minute and still ringing with no one joined (except maybe initiator)
+            if existing_call.status == 'ringing' and call_age > timedelta(seconds=60):
+                if non_initiator_joined == 0:
+                    should_cleanup = True
+                    cleanup_reason = 'ringing_timeout'
+            
+            # Case 2: Call is older than 2 minutes (stale regardless of state)
+            if call_age > timedelta(minutes=2):
+                should_cleanup = True
+                cleanup_reason = 'stale'
+            
+            # Case 3: No pending participants and only initiator joined (everyone declined/left)
+            if pending_count == 0 and joined_count <= 1:
+                # Check if the only joined person is the initiator
+                only_initiator = all(p.user_id == existing_call.initiator_id 
+                                    for p in participants if p.status == 'joined')
+                if only_initiator:
+                    should_cleanup = True
+                    cleanup_reason = 'all_declined'
+            
+            # Case 4: Call is "active" but no one other than initiator is actually joined
+            if existing_call.status == 'active' and non_initiator_joined == 0:
+                should_cleanup = True
+                cleanup_reason = 'no_participants'
+            
+            # Case 5: Call has no participants at all
+            if joined_count == 0:
+                should_cleanup = True
+                cleanup_reason = 'empty_call'
+            
+            if should_cleanup:
+                print(f"Cleaning up stale call {existing_call.id}: reason={cleanup_reason}, age={call_age}")
+                existing_call.status = 'ended' if cleanup_reason == 'stale' else 'missed'
+                existing_call.ended_at = now
+                db.session.commit()
+            else:
+                # Call is legitimately active
+                return None, "There is already an active call in this context"
         
         # Create the call
         call = Call(
@@ -208,7 +262,7 @@ class CallService:
         
         return True, None
     
-    def decline_call(self, call_id: str, user_id: str) -> Tuple[bool, Optional[str]]:
+    def decline_call(self, call_id: str, user_id: str) -> Tuple[bool, Optional[str], bool]:
         """
         Decline a call invitation.
         
@@ -217,12 +271,12 @@ class CallService:
             user_id: ID of the user declining
             
         Returns:
-            Tuple of (success, error_message)
+            Tuple of (success, error_message, call_ended)
         """
         call = Call.query.get(call_id)
         
         if not call:
-            return False, "Call not found"
+            return False, "Call not found", False
         
         participant = CallParticipant.query.filter_by(
             call_id=call_id,
@@ -230,31 +284,48 @@ class CallService:
         ).first()
         
         if not participant:
-            return False, "Not invited to this call"
+            return False, "Not invited to this call", False
         
-        if participant.status != 'ringing':
-            return False, "Cannot decline - call status has changed"
+        # Allow declining even if status changed (e.g., call became active while user was deciding)
+        if participant.status not in ['ringing', 'invited']:
+            return False, "Cannot decline - already joined or left", False
         
         participant.status = 'declined'
+        call_ended = False
         
         # For direct calls, if the only other participant declines, end the call
         if call.context_type == 'direct':
             call.status = 'declined'
             call.ended_at = datetime.utcnow()
+            call_ended = True
         else:
-            # For group calls, check if everyone declined
-            pending = CallParticipant.query.filter(
+            # For group calls, check if there are any active participants (excluding initiator who is always 'joined')
+            # Count participants who have actually joined (not just the initiator)
+            joined_participants = CallParticipant.query.filter(
                 CallParticipant.call_id == call_id,
-                CallParticipant.status.in_(['ringing', 'joined'])
+                CallParticipant.status == 'joined',
+                CallParticipant.user_id != call.initiator_id
             ).count()
             
-            if pending == 0:
-                call.status = 'declined'
-                call.ended_at = datetime.utcnow()
+            if joined_participants > 0:
+                # Call is active with participants other than initiator
+                # Just mark this user as declined, don't end the call
+                pass
+            else:
+                # No one has joined yet (besides initiator), check if everyone declined
+                pending = CallParticipant.query.filter(
+                    CallParticipant.call_id == call_id,
+                    CallParticipant.status.in_(['ringing', 'invited'])
+                ).count()
+                
+                if pending == 0:
+                    call.status = 'declined'
+                    call.ended_at = datetime.utcnow()
+                    call_ended = True
         
         db.session.commit()
         
-        return True, None
+        return True, None, call_ended
     
     def end_call(self, call_id: str, user_id: str) -> Tuple[bool, Optional[str]]:
         """
@@ -436,6 +507,112 @@ class CallService:
         db.session.commit()
         
         return True, None
+    
+    def cancel_ringing(self, call_id: str, user_id: str) -> Tuple[bool, Optional[str]]:
+        """
+        Cancel ringing for the initiator without ending an active call.
+        This is used when the initiator's timeout fires but the call is already active.
+        
+        Args:
+            call_id: The call's ID
+            user_id: ID of the initiator
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        call = Call.query.get(call_id)
+        
+        if not call:
+            return False, "Call not found"
+        
+        if call.initiator_id != user_id:
+            return False, "Only the initiator can cancel ringing"
+        
+        # If call is still ringing and no one joined, end it
+        if call.status == 'ringing':
+            joined_count = CallParticipant.query.filter(
+                CallParticipant.call_id == call_id,
+                CallParticipant.status == 'joined',
+                CallParticipant.user_id != user_id  # Exclude initiator
+            ).count()
+            
+            if joined_count == 0:
+                call.status = 'missed'
+                call.ended_at = datetime.utcnow()
+                db.session.commit()
+                return True, None
+        
+        # If call is active, just mark remaining ringing participants as missed
+        # but don't end the call
+        if call.status == 'active':
+            CallParticipant.query.filter(
+                CallParticipant.call_id == call_id,
+                CallParticipant.status == 'ringing'
+            ).update({'status': 'missed'})
+            db.session.commit()
+        
+        return True, None
+    
+    def cleanup_stale_calls(self, context_type: str, context_id: str, user_id: str) -> int:
+        """
+        Clean up all stale/stuck calls in a context.
+        
+        Args:
+            context_type: 'direct' or 'group'
+            context_id: ID of the direct chat or group
+            user_id: ID of the user requesting cleanup (for authorization)
+            
+        Returns:
+            Number of calls cleaned up
+        """
+        # First verify user has access to this context
+        if context_type == 'group':
+            membership = GroupMember.query.filter_by(
+                group_id=context_id,
+                user_id=user_id,
+                status='active'
+            ).first()
+            if not membership:
+                return 0  # User not a member of this group
+        elif context_type == 'direct':
+            chat = DirectChat.query.get(context_id)
+            if not chat or (chat.user1_id != user_id and chat.user2_id != user_id):
+                return 0  # User not part of this chat
+        
+        # Find all non-ended calls in this context
+        stale_calls = Call.query.filter(
+            Call.context_type == context_type,
+            Call.context_id == context_id,
+            Call.status.in_(['ringing', 'active'])
+        ).all()
+        
+        cleaned_count = 0
+        now = datetime.utcnow()
+        
+        for call in stale_calls:
+            # End the call
+            call.status = 'ended'
+            call.ended_at = now
+            
+            # Mark all joined participants as left
+            CallParticipant.query.filter(
+                CallParticipant.call_id == call.id,
+                CallParticipant.status == 'joined'
+            ).update({'status': 'left', 'left_at': now})
+            
+            # Mark all ringing participants as missed
+            CallParticipant.query.filter(
+                CallParticipant.call_id == call.id,
+                CallParticipant.status == 'ringing'
+            ).update({'status': 'missed'})
+            
+            cleaned_count += 1
+            print(f"Cleaned up stale call {call.id} in {context_type}:{context_id}")
+        
+        if cleaned_count > 0:
+            db.session.commit()
+        
+        return cleaned_count
 
 
 # Singleton instance

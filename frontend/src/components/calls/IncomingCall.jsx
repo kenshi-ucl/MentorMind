@@ -1,4 +1,4 @@
-import { Phone, PhoneOff, Video } from 'lucide-react';
+import { Phone, PhoneOff, Video, Users } from 'lucide-react';
 import { useCall } from '../../context/CallContext';
 import { Avatar } from '../ui/Avatar';
 import audioService from '../../lib/audio';
@@ -9,6 +9,7 @@ export function IncomingCall() {
   if (!incomingCall) return null;
   
   const isVideo = incomingCall.callType === 'video';
+  const isGroupCall = incomingCall.contextType === 'group';
   
   const handleAccept = async () => {
     // Initialize audio on user interaction (required by browser autoplay policy)
@@ -27,11 +28,17 @@ export function IncomingCall() {
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-xl max-w-sm w-full mx-4 text-center animate-pulse-slow">
         <div className="mb-6">
           <div className="relative inline-block">
-            <Avatar 
-              name={incomingCall.initiatorName || 'Unknown'} 
-              size="xl" 
-              className="mx-auto mb-4"
-            />
+            {isGroupCall ? (
+              <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-indigo-500 flex items-center justify-center">
+                <Users className="w-10 h-10 text-white" />
+              </div>
+            ) : (
+              <Avatar 
+                name={incomingCall.initiatorName || 'Unknown'} 
+                size="xl" 
+                className="mx-auto mb-4"
+              />
+            )}
             <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center animate-ping">
               {isVideo ? (
                 <Video className="w-3 h-3 text-white" />
@@ -41,11 +48,19 @@ export function IncomingCall() {
             </div>
           </div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mt-4">
-            {incomingCall.initiatorName || 'Unknown Caller'}
+            {isGroupCall ? 'Group Call' : (incomingCall.initiatorName || 'Unknown Caller')}
           </h2>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            Incoming {isVideo ? 'video' : 'voice'} call...
+            {isGroupCall 
+              ? `${incomingCall.initiatorName || 'Someone'} started a ${isVideo ? 'video' : 'voice'} call`
+              : `Incoming ${isVideo ? 'video' : 'voice'} call...`
+            }
           </p>
+          {isGroupCall && (
+            <p className="text-sm text-indigo-500 dark:text-indigo-400 mt-1">
+              {incomingCall.participants?.filter(p => p.status === 'joined').length || 0} already in call
+            </p>
+          )}
         </div>
         
         <div className="flex justify-center gap-8">
